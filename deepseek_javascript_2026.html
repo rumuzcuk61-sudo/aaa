@@ -2,20 +2,22 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>EKOSFER: Duygu Aynası</title>
+<title>EKOSFER: Yüz Hareketiyle Ekosanat</title>
 <style>
   body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
   #container { position: relative; width: 100vw; height: 100vh; }
   video { display: none; }
   
-  /* 3D dünyayı çizeceğimiz katman */
-  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 2; }
+  /* Kamera görüntüsü en arkada, hafif saydam */
+  canvas#webcamCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: grayscale(50%) blur(2px); }
   
-  #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 12px; border: 2px solid #4ade80; pointer-events: none; z-index: 10; }
-  h1 { margin: 0; font-size: 1.5rem; color: #4ade80; }
-  p { margin: 5px 0 0 0; font-size: 0.9rem; color: #ccc; }
-  #status { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000, 0 0 10px #000; transition: 0.3s; z-index: 10; text-align: center; width: 100%; }
-  #inst { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; font-size: 0.8rem; color: #fbbf24; border: 1px solid #fbbf24; z-index: 10; }
+  /* Çizim ve Animasyon Katmanı */
+  canvas#sceneCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  
+  #hud { position: absolute; top: 30px; left: 30px; z-index: 10; background: rgba(0,0,0,0.6); padding: 20px; border-radius: 15px; border: 1px solid rgba(74, 222, 128, 0.5); backdrop-filter: blur(5px); }
+  h1 { margin: 0; font-size: 1.8rem; color: #4ade80; text-shadow: 0 0 10px #000; }
+  p { margin: 5px 0 0 0; font-size: 1rem; color: #ccc; }
+  #status { color: #fbbf24; font-weight: bold; margin-top: 10px; display: block; font-size: 1.2rem; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -23,31 +25,36 @@
 <body>
 <div id="container">
   <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
+  <canvas id="webcamCanvas"></canvas>
+  <canvas id="sceneCanvas"></canvas>
   
-  <div id="ui">
-    <h1>EKOSFER: Duygu Aynası</h1>
-    <p>Gülümse, vadini yeşert! | Üzülme, kirlilik artar...</p>
+  <div id="hud">
+    <h1>EKOSFER</h1>
+    <p>Kafanı çevir, dijital vadiyi yönet.</p>
+    <span id="status">Yüz Aranıyor...</span>
   </div>
-  <div id="inst">GİRESUN BULANCAK<br>BİLİM VE SANAT MERKEZİ</div>
-  <div id="status">Kamera Bekleniyor...</div>
 </div>
 
 <script>
 const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+const webcamCanvas = document.getElementById('webcamCanvas');
+const webcamCtx = webcamCanvas.getContext('2d');
+const sceneCanvas = document.getElementById('sceneCanvas');
+const ctx = sceneCanvas.getContext('2d');
 const statusText = document.getElementById('status');
 
-let isSmiling = false;
-let faceLandmarks = null;
-let particles = [];
 let cameraStarted = false;
-let worldTime = 0;
+let time = 0;
+let faceData = { x: 0, y: 0, smile: 0, detected: false };
+let trees = [];
+let particles = [];
+let birds = [];
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  webcamCanvas.width = window.innerWidth;
+  webcamCanvas.height = window.innerHeight;
+  sceneCanvas.width = window.innerWidth;
+  sceneCanvas.height = window.innerHeight;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -58,97 +65,48 @@ function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
-function playSound(type) {
+function playChime() {
   initAudio();
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  if (type === 'good') {
-    [800, 1000, 1200, 1500].forEach((f, i) => {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.connect(g); g.connect(audioCtx.destination);
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0, now + i*0.05);
-      g.gain.linearRampToValueAtTime(0.05, now + i*0.05 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.01, now + i*0.05 + 0.15);
-      o.start(now + i*0.05); o.stop(now + i*0.05 + 0.2);
-    });
-  } else {
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  const notes = [523.25, 659.25, 783.99]; // Do, Mi, Sol
+  notes.forEach((f, i) => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
     o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
-    o.frequency.exponentialRampToValueAtTime(100, now + 0.3);
-    g.gain.setValueAtTime(0.05, now);
-    g.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-    o.start(now); o.stop(now + 0.4);
-  }
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, now + i*0.1);
+    g.gain.linearRampToValueAtTime(0.05, now + i*0.1 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + i*0.1 + 0.8);
+    o.start(now + i*0.1); o.stop(now + i*0.1 + 0.9);
+  });
 }
 
-// --- VADİ ÇİZİMİ ---
-function drawWorld() {
-  const w = canvas.width;
-  const h = canvas.height;
-  
-  // Gökyüzü (Mutluysa mavi, üzgünse gri)
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-  if (isSmiling) {
-    skyGrad.addColorStop(0, '#38bdf8');
-    skyGrad.addColorStop(1, '#bae6fd');
-  } else {
-    skyGrad.addColorStop(0, '#1e293b');
-    skyGrad.addColorStop(1, '#475569');
+// --- OBJE ÜRETİCİLERİ ---
+function initTrees() {
+  trees = [];
+  for(let i = 0; i < 9; i++) {
+    trees.push({
+      x: (i / 8) * sceneCanvas.width,
+      baseY: sceneCanvas.height * 0.7 + Math.random() * 50,
+      scale: 0.5 + Math.random() * 0.5,
+      color: '#4ade80'
+    });
   }
-  ctx.fillStyle = skyGrad;
-  ctx.fillRect(0, 0, w, h);
+}
+initTrees();
 
-  // Güneş
-  ctx.beginPath();
-  ctx.arc(w * 0.8, h * 0.2, 60, 0, Math.PI * 2);
-  ctx.fillStyle = isSmiling ? '#fff59d' : '#64748b';
-  ctx.shadowBlur = isSmiling ? 50 : 0;
-  ctx.shadowColor = '#fbbf24';
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Zemin
-  ctx.fillStyle = isSmiling ? '#166534' : '#451a03';
-  ctx.fillRect(0, h * 0.7, w, h * 0.3);
-
-  // Ağaçlar
-  const treeCount = 7;
-  for (let i = 0; i < treeCount; i++) {
-    const x = (i * w) / (treeCount - 1);
-    const y = h * 0.7;
-    
-    // Gövde
-    ctx.fillStyle = '#451a03';
-    ctx.fillRect(x - 10, y - 100, 20, 100);
-    
-    // Yapraklar (Sallanma efekti)
-    const sway = Math.sin(worldTime + i) * 10;
-    ctx.beginPath();
-    ctx.arc(x + sway, y - 130, 50, 0, Math.PI * 2);
-    ctx.fillStyle = isSmiling ? '#22c55e' : '#3f3f46';
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.arc(x + sway - 30, y - 100, 35, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.arc(x + sway + 30, y - 100, 35, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Kirlilik Bulutları (Üzgünse çıkar)
-  if (!isSmiling) {
-    for (let i = 0; i < 5; i++) {
-      const px = (i * w / 4) + Math.sin(worldTime + i)*30;
-      const py = h * 0.4 + Math.cos(worldTime + i*2)*30;
-      ctx.beginPath();
-      ctx.arc(px, py, 40, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(75, 85, 99, 0.5)';
-      ctx.fill();
-    }
+function spawnParticles(x, y, count) {
+  for(let i=0; i<count; i++) {
+    particles.push({
+      x: x + (Math.random()-0.5)*100,
+      y: y + (Math.random()-0.5)*100,
+      vx: (Math.random()-0.5)*4,
+      vy: -Math.random()*6 - 2,
+      size: Math.random()*10 + 5,
+      life: 1,
+      color: Math.random() > 0.5 ? '#fbbf24' : '#ec4899'
+    });
   }
 }
 
@@ -167,7 +125,7 @@ async function initCamera() {
       processVideo();
     };
   } catch (err) {
-    statusText.innerText = "Kamera izni verilmedi!";
+    statusText.innerText = "Kamera izni gerekli!";
     statusText.style.color = "#ef4444";
   }
 }
@@ -179,97 +137,139 @@ async function processVideo() {
 setTimeout(initCamera, 500);
 
 function onResults(results) {
-  worldTime += 0.02;
+  time += 0.02;
   
-  // Arkadaki dünyayı çiz
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawWorld();
+  // Kamera arka planını çiz
+  if(cameraStarted) {
+    webcamCtx.save();
+    webcamCtx.translate(webcamCanvas.width, 0);
+    webcamCtx.scale(-1, 1);
+    webcamCtx.drawImage(video, 0, 0, webcamCanvas.width, webcamCanvas.height);
+    webcamCtx.restore();
+  }
 
-  // Yapay zeka yüzü bulduysa
+  ctx.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
+
+  // Yüz bulunduysa verileri al
   if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-    faceLandmarks = results.multiFaceLandmarks[0];
+    const lm = results.multiFaceLandmarks[0];
+    faceData.detected = true;
     
-    const leftMouth = faceLandmarks[61];
-    const rightMouth = faceLandmarks[291];
-    const topLip = faceLandmarks[13];
-    const bottomLip = faceLandmarks[14];
+    // Yüzün ekrandaki X ve Y konumu (Burun ucu referans)
+    const nose = lm[1];
+    faceData.x = (1 - nose.x) * sceneCanvas.width;
+    faceData.y = nose.y * sceneCanvas.height;
+    
+    // Gülümseme oranı
+    const leftMouth = lm[61], rightMouth = lm[291];
+    const topLip = lm[13], bottomLip = lm[14];
+    const w = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
+    const h = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
+    faceData.smile = w / h;
+    
+    statusText.innerText = faceData.smile > 3.5 ? "🌿 GÜLÜMSÜYORSUN: DOĞA COŞUYOR!" : "DİJİTAL VADİYİ YÖNET";
+    statusText.style.color = faceData.smile > 3.5 ? "#4ade80" : "#fbbf24";
 
-    const mouthWidth = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
-    const mouthHeight = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
-    const smileRatio = mouthWidth / mouthHeight;
+    // --- GÖRSEL EFEKTLER ---
+    
+    // 1. Gökyüzü Rengi (Gülümsemeye göre)
+    const skyLight = 50 + (faceData.smile > 3.5 ? 20 : 0);
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, sceneCanvas.height);
+    skyGrad.addColorStop(0, `hsl(200, 80%, ${skyLight}%)`);
+    skyGrad.addColorStop(1, `hsl(190, 70%, ${skyLight+20}%)`);
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, sceneCanvas.width, sceneCanvas.height);
 
-    if (smileRatio > 3.5) {
-      if (!isSmiling) {
-        isSmiling = true;
-        statusText.innerText = "🌿 VADİ YEŞERİYOR!";
-        statusText.style.color = "#4ade80";
-        for(let i=0; i<40; i++) createParticle(true);
-        playSound('good');
-      }
-    } else {
-      if (isSmiling) {
-        isSmiling = false;
-        statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
-        statusText.style.color = "#ef4444";
-        for(let i=0; i<30; i++) createParticle(false);
-        playSound('bad');
+    // 2. Güneş
+    ctx.beginPath();
+    ctx.arc(sceneCanvas.width * 0.8, sceneCanvas.height * 0.2, 60, 0, Math.PI*2);
+    ctx.fillStyle = faceData.smile > 3.5 ? '#ffeb3b' : '#ffd54f';
+    ctx.shadowBlur = faceData.smile > 3.5 ? 80 : 20;
+    ctx.shadowColor = '#fbbf24';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 3. Ağaçlar (Yüzün X konumuna göre sallanır)
+    trees.forEach((t, i) => {
+      // Rüzgar etkisi yüzün hareketine bağlı
+      const wind = (faceData.x - sceneCanvas.width/2) * 0.001;
+      const sway = Math.sin(time*2 + i) * 10 + wind * 50;
+      
+      // Gövde
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(t.x - 10*t.scale + sway, t.baseY - 80*t.scale, 20*t.scale, 80*t.scale);
+      
+      // Yapraklar (Gülümsemeye göre parlar)
+      ctx.beginPath();
+      ctx.arc(t.x + sway, t.baseY - 110*t.scale, 45*t.scale, 0, Math.PI*2);
+      ctx.fillStyle = faceData.smile > 3.5 ? '#22c55e' : '#4ade80';
+      ctx.shadowBlur = faceData.smile > 3.5 ? 20 : 0;
+      ctx.shadowColor = '#4ade80';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      
+      ctx.beginPath();
+      ctx.arc(t.x - 25*t.scale + sway, t.baseY - 80*t.scale, 30*t.scale, 0, Math.PI*2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.arc(t.x + 25*t.scale + sway, t.baseY - 80*t.scale, 30*t.scale, 0, Math.PI*2);
+      ctx.fill();
+    });
+
+    // 4. Zemin
+    ctx.fillStyle = '#166534';
+    ctx.fillRect(0, sceneCanvas.height * 0.75, sceneCanvas.width, sceneCanvas.height * 0.25);
+
+    // 5. Yüzün Etrafında Uçuşan Kuşlar ve Yapraklar
+    if (faceData.smile > 3.5) {
+      if (Math.random() > 0.8) spawnParticles(faceData.x, faceData.y, 2);
+      
+      // Kuşlar yüzün etrafında döner
+      for(let i=0; i<3; i++) {
+        const angle = time * 2 + (i * Math.PI * 2 / 3);
+        const radius = 150;
+        const bx = faceData.x + Math.cos(angle) * radius;
+        const by = faceData.y + Math.sin(angle) * radius;
+        
+        ctx.beginPath();
+        ctx.moveTo(bx - 10, by);
+        ctx.quadraticCurveTo(bx, by - 10, bx + 10, by);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
     }
-    
-    // Yüzüne aura çiz
-    const nose = faceLandmarks[1];
-    const x = (1 - nose.x) * canvas.width;
-    const y = nose.y * canvas.height;
-    const radius = 120 + Math.sin(worldTime * 10) * 10;
 
+    // 6. Yüz Aurası (Gülümseme arttıkça büyür)
     ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = isSmiling ? 'rgba(74, 222, 128, 0.5)' : 'rgba(239, 68, 68, 0.5)';
+    ctx.arc(faceData.x, faceData.y, 100 + (faceData.smile > 3.5 ? 40 : 0), 0, Math.PI * 2);
+    ctx.strokeStyle = faceData.smile > 3.5 ? 'rgba(74, 222, 128, 0.8)' : 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 5;
     ctx.stroke();
+
   } else {
-    statusText.innerText = "Yüzünü göster...";
+    faceData.detected = false;
+    statusText.innerText = "Yüzünü kameraya göster...";
     statusText.style.color = "#fff";
-    if (isSmiling) {
-       isSmiling = false;
-    }
+    
+    // Yüz yoksa karanlık bir ekran
+    ctx.fillStyle = '#0a0f0a';
+    ctx.fillRect(0, 0, sceneCanvas.width, sceneCanvas.height);
   }
 
-  drawParticles();
-  ctx.restore();
-}
-
-function createParticle(isGreen) {
-  const x = Math.random() * canvas.width;
-  const y = canvas.height + 20;
-  particles.push({
-    x: x, y: y,
-    vx: (Math.random() - 0.5) * 4,
-    vy: -Math.random() * 5 - 2,
-    size: Math.random() * 15 + 10,
-    maxLife: 100 + Math.random() * 100,
-    isGreen: isGreen,
-    rot: Math.random() * Math.PI * 2,
-    rotSpeed: (Math.random() - 0.5) * 0.1
-  });
-}
-
-function drawParticles() {
+  // 7. Partiküller
   for (let i = particles.length - 1; i >= 0; i--) {
     let p = particles[i];
-    p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.rot += p.rotSpeed; p.maxLife--;
-    if (p.maxLife <= 0) { particles.splice(i, 1); continue; }
-    ctx.save();
-    ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.maxLife / 100);
-    if (p.isGreen) {
-      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#166534'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0); ctx.stroke();
-    } else {
-      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
+    p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+    if(p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
   }
+
+  requestAnimationFrame(() => {}); // Mediapipe kendi döngüsünü yönetir
 }
 </script>
 </body>
