@@ -3,34 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EKOSFER</title>
+<title>EKOSFER: Ekobilinç Ağacı</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; font-family: sans-serif; color: #fff; }
+  body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; }
   #cam, #scene { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
-  #cam { transform: scaleX(-1); opacity: 0.4; z-index: 1; }
+  #cam { transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: saturate(0.5) contrast(1.1); }
   #scene { z-index: 2; pointer-events: none; }
+  
   #hud {
     position: fixed; top: 20px; left: 20px; z-index: 10;
-    background: rgba(0,0,0,0.7); padding: 15px 20px;
-    border-radius: 12px; border: 1px solid #4ade80;
-    backdrop-filter: blur(10px);
+    background: rgba(5, 15, 5, 0.8); padding: 18px 25px;
+    border-radius: 15px; border: 1px solid rgba(74, 222, 128, 0.4);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
   }
-  h1 { font-size: 1.2rem; color: #4ade80; margin-bottom: 8px; }
-  #status { color: #fbbf24; font-weight: bold; }
-  #status.happy { color: #4ade80; text-shadow: 0 0 10px #4ade80; }
+  h1 { font-size: 1.4rem; color: #4ade80; margin-bottom: 6px; letter-spacing: 1px; }
+  #status { color: #fbbf24; font-weight: 600; font-size: 1rem; transition: all 0.3s; }
+  #status.happy { color: #4ade80; text-shadow: 0 0 15px #4ade80; }
   
   #loader {
-    position: fixed; inset: 0; z-index: 100;
-    background: #0a1f0a;
+    position: fixed; inset: 0; z-index: 100; background: #061206;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 20px; transition: opacity 0.5s;
+    gap: 20px; transition: opacity 0.8s;
   }
   .spinner {
     width: 50px; height: 50px; border-radius: 50%;
-    border: 3px solid rgba(74, 222, 128, 0.2);
-    border-top-color: #4ade80;
-    animation: spin 1s linear infinite;
+    border: 3px solid rgba(74, 222, 128, 0.1);
+    border-top-color: #4ade80; animation: spin 1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -39,9 +39,9 @@
 <body>
 
 <div id="loader">
-  <h2 style="color:#4ade80; letter-spacing:2px;">EKOSFER</h2>
+  <h2 style="color:#4ade80; letter-spacing:4px;">EKOSFER</h2>
   <div class="spinner"></div>
-  <p id="loaderText" style="color:#8bbf9a; font-size:0.9rem;">Yapay zeka modeli yükleniyor...</p>
+  <p id="loaderText" style="color:#8bbf9a;">Yapay zeka modeli hazırlanıyor...</p>
 </div>
 
 <video id="video" autoplay playsinline muted style="display:none"></video>
@@ -50,7 +50,7 @@
 
 <div id="hud">
   <h1>🌿 EKOSFER</h1>
-  <span id="status">Başlatılıyor...</span>
+  <span id="status">Kameraya bakın...</span>
 </div>
 
 <script>
@@ -66,7 +66,9 @@ const loaderText = document.getElementById('loaderText');
 let time = 0;
 let isHappy = false;
 let faceCenter = { x: 0, y: 0 };
+let faceSize = 100;
 let landmarks = null;
+let smoothFaceH = 100;
 
 function resize() {
   camCanvas.width = scene.width = innerWidth;
@@ -75,7 +77,7 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-// SES MOTORU
+// --- SES MOTORU ---
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -84,50 +86,39 @@ function initAudio() {
 function playBird() {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  for (let i = 0; i < 3; i++) {
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sine';
-    const start = now + i * 0.1;
-    o.frequency.setValueAtTime(2500 + Math.random() * 800, start);
-    o.frequency.exponentialRampToValueAtTime(3000, start + 0.1);
-    g.gain.setValueAtTime(0, start);
-    g.gain.linearRampToValueAtTime(0.03, start + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
-    o.start(start); o.stop(start + 0.2);
-  }
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.type = 'sine';
+  o.frequency.setValueAtTime(2500 + Math.random() * 1000, now);
+  o.frequency.exponentialRampToValueAtTime(3000 + Math.random() * 500, now + 0.1);
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.05, now + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+  o.start(now); o.stop(now + 0.25);
 }
 
-// KAMERA BAŞLATMA (Hata yakalama eklendi)
+// --- KAMERA VE YAPAY ZEKA ---
 async function startCamera() {
   try {
-    loaderText.textContent = "Kamera izni isteniyor...";
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480 } // Boyut düşürüldü ki mobilde de hızlı açılsın
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     video.srcObject = stream;
     video.onloadedmetadata = () => {
       video.play();
       loader.style.opacity = '0';
       setTimeout(() => loader.style.display = 'none', 500);
       statusEl.textContent = 'Yüz aranıyor...';
-      initFaceMesh(); // Kamera açıldıktan sonra yapay zekayı başlat
+      initFaceMesh();
     };
   } catch (e) {
     loaderText.textContent = "KAMERA HATASI: " + e.message;
     loaderText.style.color = "#ef4444";
-    statusEl.textContent = 'Kamera açılamadı!';
-    statusEl.style.color = '#ef4444';
   }
 }
 
-// YAPAY ZEKA KURULUMU
 function initFaceMesh() {
-  const faceMesh = new FaceMesh({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
-  });
-  faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true });
+  const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+  faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
   faceMesh.onResults(onResults);
   
   let busy = false;
@@ -142,8 +133,11 @@ function initFaceMesh() {
   loop();
 }
 
+// --- SONUÇLARI İŞLEME ---
 function onResults(r) {
-  time += 0.03;
+  time += 0.04;
+  
+  // Kamera arka planı
   camCtx.save();
   camCtx.translate(camCanvas.width, 0);
   camCtx.scale(-1, 1);
@@ -155,76 +149,124 @@ function onResults(r) {
   if (r.multiFaceLandmarks && r.multiFaceLandmarks.length > 0) {
     landmarks = r.multiFaceLandmarks[0];
     const nose = landmarks[1];
+    
+    // Ayna modunda yüz merkezi
     faceCenter.x = (1 - nose.x) * scene.width;
     faceCenter.y = nose.y * scene.height;
 
-    const mL = landmarks[61], mR = landmarks[291];
-    const tL = landmarks[13], bL = landmarks[14];
-    const mw = Math.hypot(mL.x - mR.x, mL.y - mR.y);
-    const mh = Math.hypot(tL.x - bL.x, tL.y - bL.y) || 0.001;
-    isHappy = (mw / mh) > 3.2;
+    // Gülümseme testi (Ağız genişliğinin ağız yüksekliğine oranı)
+    const leftMouth = landmarks[61], rightMouth = landmarks[291];
+    const topLip = landmarks[13], bottomLip = landmarks[14];
+    const w = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
+    const h = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y) || 0.001;
+    
+    // Gerçekten gülümsediğinde (dişler göründüğünde) tetiklenir
+    isHappy = (w / h) > 3.8;
 
     statusEl.textContent = isHappy ? '🌿 EKOBİLİNÇ CANLANIYOR!' : 'DİJİTAL DOĞAYI BESLE (GÜLÜMSE)';
     statusEl.className = isHappy ? 'happy' : '';
 
-    if (isHappy && Math.random() > 0.97) playBird();
-    drawTree();
+    if (isHappy && Math.random() > 0.95) playBird();
+
+    // Ağacın boyutunu yüz boyutuna göre ayarla (alın ile çene arası)
+    const forehead = landmarks[10];
+    const chin = landmarks[152];
+    const rawH = Math.hypot((1-forehead.x)-(1-chin.x), forehead.y-chin.y) * scene.height;
+    smoothFaceH = smoothFaceH * 0.9 + rawH * 0.1; // Titremeyi önlemek için yumuşatma
+
+    drawOrganicTree();
   } else {
     statusEl.textContent = 'Lütfen kameraya bakın...';
     statusEl.className = '';
   }
 }
 
-function drawTree() {
+// --- SANAT: ORGANİK AĞAÇ ÇİZİMİ ---
+function drawOrganicTree() {
   const W = scene.width, H = scene.height;
   const mx = p => (1 - p.x) * W;
   const my = p => p.y * H;
-  const cx = faceCenter.x, cy = faceCenter.y;
-  const fH = Math.hypot(mx(landmarks[10]) - mx(landmarks[152]), my(landmarks[10]) - my(landmarks[152]));
-  const scale = isHappy ? 1.4 : 1.0;
+  const cx = faceCenter.x;
+  const cy = faceCenter.y;
+  
+  // Gülümseyince ağaç büyür
+  const treeScale = isHappy ? 1.3 : 1.0;
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(scale, scale);
-
-  const sway = Math.sin(time * 1.5) * 6;
+  // 1. GÖVDE (Burun ucundan başlar, yukarı doğru kıvrılarak çıkar)
+  const trunkSway = Math.sin(time * 1.5) * 15; // Rüzgarda salınım
+  const trunkTopY = cy - smoothFaceH * 0.9 * treeScale; // Kafanın üstüne doğru uzanır
+  
   ctx.beginPath();
-  ctx.moveTo(0, fH * 0.4);
-  ctx.quadraticCurveTo(sway, 0, -sway, -fH * 0.7);
+  ctx.moveTo(cx, cy); // Burun ucu
+  ctx.bezierCurveTo(
+    cx + trunkSway * 0.5, cy - smoothFaceH * 0.3,
+    cx - trunkSway, cy - smoothFaceH * 0.6,
+    cx + trunkSway, trunkTopY
+  );
+  
+  // Işıyan gövde
   ctx.strokeStyle = isHappy ? '#4ade80' : '#166534';
-  ctx.lineWidth = isHappy ? 5 : 3;
+  ctx.lineWidth = isHappy ? 6 : 4;
   ctx.lineCap = 'round';
-  if (isHappy) { ctx.shadowBlur = 20; ctx.shadowColor = '#4ade80'; }
+  if (isHappy) { ctx.shadowBlur = 25; ctx.shadowColor = '#4ade80'; }
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  const branches = [[33, 46], [263, 276], [70, 63], [300, 293], [172, 136], [397, 365]];
-  branches.forEach(([a, b], i) => {
-    const ax = mx(landmarks[a]) - cx, ay = my(landmarks[a]) - cy;
-    const bx = mx(landmarks[b]) - cx, by = my(landmarks[b]) - cy;
-    const ex = ax + (bx - ax) * (isHappy ? 1.8 : 1.2);
-    const ey = ay + (by - ay) * (isHappy ? 1.8 : 1.2);
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.quadraticCurveTo((ax + bx) / 2, (ay + by) / 2 - 15, ex, ey);
-    ctx.strokeStyle = isHappy ? '#22c55e' : '#15803d';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    const ls = isHappy ? 14 : 8;
-    ctx.beginPath();
-    ctx.ellipse(ex, ey, ls, ls * 0.5, Math.atan2(ey - ay, ex - ax), 0, Math.PI * 2);
-    ctx.fillStyle = isHappy ? `hsla(${120 + Math.sin(time + i) * 20}, 75%, 55%, 0.85)` : 'rgba(22, 101, 52, 0.6)';
-    ctx.fill();
-  });
-  ctx.restore();
+  // 2. YÜZDEN ÇIKAN DALLAR (Kaşlar, elmacık, çene)
+  // Her dal yüzün gerçek bir noktasından başlar ve dışa doğru uzar
+  const branches = [
+    { start: landmarks[33], end: landmarks[46], dir: -1 },   // Sol kaş
+    { start: landmarks[263], end: landmarks[276], dir: 1 },  // Sağ kaş
+    { start: landmarks[70], end: landmarks[63], dir: -1 },   // Sol elmacık
+    { start: landmarks[300], end: landmarks[293], dir: 1 },  // Sağ elmacık
+    { start: landmarks[172], end: landmarks[136], dir: -1 }, // Sol çene
+    { start: landmarks[397], end: landmarks[365], dir: 1 }   // Sağ çene
+  ];
 
+  branches.forEach((b, i) => {
+    const sx = mx(b.start), sy = my(b.start);
+    const ex = mx(b.end), ey = my(b.end);
+    
+    // Dalın uzunluğu ve büyümesi
+    const grow = isHappy ? 1.6 : 1.0;
+    const ctrlX = sx + (ex - sx) * 0.5 + b.dir * 30;
+    const ctrlY = sy + (ey - sy) * 0.5 - 20;
+    const finalX = sx + (ex - sx) * grow;
+    const finalY = sy + (ey - sy) * grow - (isHappy ? 20 : 0);
+
+    // Dal çizgisi
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, finalX, finalY);
+    ctx.strokeStyle = isHappy ? '#22c55e' : '#15803d';
+    ctx.lineWidth = isHappy ? 3 : 2;
+    ctx.stroke();
+
+    // Dalın ucuna yapraklar ekle
+    const leafCount = isHappy ? 3 : 1;
+    for (let l = 0; l < leafCount; l++) {
+      const offset = l * 0.4 - 0.4;
+      const lx = finalX + Math.cos(i + offset) * 10;
+      const ly = finalY + Math.sin(i + offset) * 10;
+      
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, isHappy ? 12 : 7, isHappy ? 6 : 4, Math.atan2(finalY - sy, finalX - sx) + offset, 0, Math.PI * 2);
+      ctx.fillStyle = isHappy 
+        ? `hsla(${110 + Math.sin(time * 2 + i) * 30}, 80%, 60%, 0.9)` 
+        : 'rgba(21, 128, 61, 0.6)';
+      ctx.fill();
+    }
+  });
+
+  // 3. GÖZLERDEN SAÇILAN IŞIK
   if (isHappy) {
-    [159, 386].forEach((idx, i) => {
+    [159, 386].forEach((idx) => {
       const ex = mx(landmarks[idx]), ey = my(landmarks[idx]);
-      const r = 30 + Math.sin(time * 5 + i) * 10;
+      const r = 40 + Math.sin(time * 5) * 10;
       const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r);
-      g.addColorStop(0, 'rgba(74,222,128,0.6)');
-      g.addColorStop(1, 'rgba(74,222,128,0)');
+      g.addColorStop(0, 'rgba(251, 191, 36, 0.4)'); // Altın sarısı
+      g.addColorStop(0.5, 'rgba(74, 222, 128, 0.2)'); // Yeşil
+      g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(ex, ey, r, 0, Math.PI * 2);
@@ -232,22 +274,22 @@ function drawTree() {
     });
   }
 
-  const count = isHappy ? 25 : 8;
-  for (let i = 0; i < count; i++) {
-    const ang = time * 0.8 + i * Math.PI * 2 / count;
-    const rad = 140 + Math.sin(time * 2 + i) * 40;
-    const px = cx + Math.cos(ang) * rad;
-    const py = cy + Math.sin(ang) * rad;
+  // 4. YÜZÜN ETRAFINDA UÇUŞAN KELEBEKLER / PARÇACIKLAR
+  const particleCount = isHappy ? 20 : 6;
+  for (let i = 0; i < particleCount; i++) {
+    const angle = time * 1.2 + (i * Math.PI * 2 / particleCount);
+    const radius = smoothFaceH * 0.8 + Math.sin(time * 3 + i) * 20;
+    const px = cx + Math.cos(angle) * radius;
+    const py = cy + Math.sin(angle) * radius;
+
     ctx.beginPath();
-    ctx.arc(px, py, 4, 0, Math.PI * 2);
-    ctx.fillStyle = isHappy ? (i % 2 ? '#fbbf24' : '#4ade80') : 'rgba(100,100,100,0.5)';
+    ctx.arc(px, py, isHappy ? 4 : 2, 0, Math.PI * 2);
+    ctx.fillStyle = isHappy ? (i % 2 === 0 ? '#fbbf24' : '#4ade80') : 'rgba(100,100,100,0.4)';
     ctx.fill();
   }
 }
 
 document.body.addEventListener('click', initAudio, { once: true });
-
-// HER ŞEYİ BAŞLAT
 startCamera();
 </script>
 </body>
