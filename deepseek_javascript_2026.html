@@ -2,106 +2,59 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>EKOSFER: Duygu Aynası</title>
+<title>EKOSFER: Görsel Test</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
-  #container { position: relative; width: 100vw; height: 100vh; }
-  video { display: none; }
-  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 2;}
-  #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 12px; border: 2px solid #4ade80; pointer-events: none; z-index: 10; }
-  h1 { margin: 0; font-size: 1.5rem; color: #4ade80; }
-  p { margin: 5px 0 0 0; font-size: 0.9rem; color: #ccc; }
-  #status { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000, 0 0 10px #000; transition: 0.3s; z-index: 10; text-align: center; width: 100%; }
-  #inst { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; font-size: 0.8rem; color: #fbbf24; border: 1px solid #fbbf24; z-index: 10; }
+  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; height: 100vh; display: flex; justify-content: center; align-items: center; }
   
-  /* Arka plan dünyası için */
-  #world { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; transition: background 1s; }
-  .tree { position: absolute; bottom: 0; transition: filter 1s, opacity 1s; }
-  .cloud { position: absolute; background: rgba(255,255,255,0.8); border-radius: 50%; transition: background 1s; }
+  /* Arka plan resmi (Doğa) */
+  #world { position: absolute; inset: 0; background: url('https://images.unsplash.com/photo-1511497584788-876760111969?q=80&w=2000&auto=format&fit=crop') center/cover; filter: grayscale(100%) brightness(0.3); transition: all 1.5s ease; z-index: 1; }
+  
+  /* Arayüz */
+  #ui { position: relative; z-index: 10; text-align: center; }
+  h1 { font-size: 3rem; color: #4ade80; text-shadow: 0 0 20px #000; margin-bottom: 10px; }
+  p { font-size: 1.2rem; color: #fff; text-shadow: 0 0 10px #000; margin-bottom: 40px; }
+  
+  /* Butonlar */
+  .btn-group { display: flex; gap: 20px; justify-content: center; }
+  button { padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 30px; cursor: pointer; transition: 0.3s; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  .btn-happy { background: #4ade80; color: #000; }
+  .btn-happy:hover { transform: scale(1.1); box-shadow: 0 0 30px #4ade80; }
+  .btn-sad { background: #ef4444; color: #fff; }
+  .btn-sad:hover { transform: scale(1.1); box-shadow: 0 0 30px #ef4444; }
+  
+  /* Yazı */
+  #status { position: absolute; bottom: 50px; left: 0; width: 100%; text-align: center; font-size: 2rem; font-weight: bold; text-shadow: 0 0 20px #000; z-index: 10; transition: 0.3s; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
-<div id="container">
-  <div id="world"></div>
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
-  
-  <div id="ui">
-    <h1>EKOSFER: Duygu Aynası</h1>
-    <p>Gülümse, doğayı yeşert! | Üzülme, doğa kararır...</p>
+
+<!-- Arka plan -->
+<div id="world"></div>
+
+<!-- Arayüz -->
+<div id="ui">
+  <h1>EKOSFER</h1>
+  <p>Doğanın halini değiştirmek için bir butona tıkla!</p>
+  <div class="btn-group">
+    <button class="btn-happy" onclick="changeWorld(true)">🌿 DOĞAYI YEŞERT</button>
+    <button class="btn-sad" onclick="changeWorld(false)">🌫️ DOĞAYI KİRLET</button>
   </div>
-  <div id="inst">GİRESUN BULANCAK<br>BİLİM VE SANAT MERKEZİ</div>
-  <div id="status">Kamera Bekleniyor...</div>
 </div>
 
+<div id="status" style="color:#fff;">Bekleniyor...</div>
+
 <script>
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const statusText = document.getElementById('status');
 const world = document.getElementById('world');
+const statusText = document.getElementById('status');
+let isHappy = false;
 
-let isSmiling = false;
-let faceLandmarks = null;
-let particles = [];
-let cameraStarted = false;
-let animationFrameId;
-
-// --- ARKA PLAN DÜNYASI OLUŞTURMA ---
-function createWorld() {
-  world.innerHTML = '';
-  
-  // Gökyüzü
-  world.style.background = 'linear-gradient(to bottom, #0a0f0a, #000)'; // Başlangıçta karanlık
-  
-  // Güneş
-  const sun = document.createElement('div');
-  sun.style.cssText = 'position:absolute; top:100px; right:15%; width:100px; height:100px; background:#fff59d; border-radius:50%; box-shadow:0 0 50px #fbbf24; transition: all 1s;';
-  sun.id = 'sun';
-  world.appendChild(sun);
-
-  // Bulutlar
-  for (let i = 0; i < 5; i++) {
-    const cloud = document.createElement('div');
-    cloud.className = 'cloud';
-    cloud.style.width = (80 + Math.random()*80) + 'px';
-    cloud.style.height = (40 + Math.random()*40) + 'px';
-    cloud.style.top = (50 + Math.random()*150) + 'px';
-    cloud.style.left = (Math.random()*80) + '%';
-    world.appendChild(cloud);
-  }
-
-  // Ağaçlar (Ön plan)
-  for (let i = 0; i < 8; i++) {
-    const tree = document.createElement('div');
-    tree.className = 'tree';
-    tree.style.left = (i * 15 + Math.random()*5) + '%';
-    tree.style.width = '100px';
-    tree.style.height = '200px';
-    
-    // Gövde
-    const trunk = document.createElement('div');
-    trunk.style.cssText = 'position:absolute; bottom:0; left:40px; width:20px; height:100px; background:#451a03;';
-    tree.appendChild(trunk);
-    
-    // Yapraklar (Başlangıçta solmuş)
-    const leaves = document.createElement('div');
-    leaves.style.cssText = 'position:absolute; bottom:80px; left:0; width:100px; height:100px; background:#3f3f46; border-radius:50% 50% 40% 40%; transition: background 1s, box-shadow 1s;';
-    leaves.className = 'leaves';
-    tree.appendChild(leaves);
-    
-    world.appendChild(tree);
-  }
-}
-
-// --- SES MOTORU ---
+// Ses Efektleri
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
+
 function playSound(type) {
   initAudio();
   if (!audioCtx) return;
@@ -127,167 +80,20 @@ function playSound(type) {
   }
 }
 
-// --- VADİYİ GÜNCELLE ---
-function updateWorld(smileState) {
-  const sun = document.getElementById('sun');
-  const trees = document.querySelectorAll('.tree');
-  const leaves = document.querySelectorAll('.leaves');
-  const clouds = document.querySelectorAll('.cloud');
-
-  if (smileState) {
-    // MUTLU DÜNYA
-    world.style.background = 'linear-gradient(to bottom, #38bdf8, #bae6fd)';
-    if(sun) { sun.style.opacity = '1'; sun.style.transform = 'scale(1)'; }
-    leaves.forEach(l => {
-      l.style.background = '#22c55e';
-      l.style.boxShadow = '0 0 20px #4ade80';
-    });
-    clouds.forEach(c => c.style.background = 'rgba(255,255,255,0.9)');
+function changeWorld(happy) {
+  isHappy = happy;
+  if (happy) {
+    // Doğayı canlandır (Görsel filtresini kaldır)
+    world.style.filter = 'grayscale(0%) brightness(1.1)';
+    statusText.innerText = "🌿 DOĞA CANLANIYOR!";
+    statusText.style.color = "#4ade80";
+    playSound('good');
   } else {
-    // ÜZGÜN DÜNYA
-    world.style.background = 'linear-gradient(to bottom, #1e1e24, #000)';
-    if(sun) { sun.style.opacity = '0.3'; sun.style.transform = 'scale(0.8)'; }
-    leaves.forEach(l => {
-      l.style.background = '#3f3f46';
-      l.style.boxShadow = 'none';
-    });
-    clouds.forEach(c => c.style.background = 'rgba(75,85,99,0.8)');
-  }
-}
-
-// --- KAMERA VE YAPAY ZEKA ---
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
-
-const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-faceMesh.onResults(onResults);
-
-async function initCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-    video.srcObject = stream;
-    video.onloadedmetadata = () => {
-      video.play();
-      cameraStarted = true;
-      processVideo();
-    };
-  } catch (err) {
-    statusText.innerText = "Kamera izni verilmedi!";
+    // Doğayı kirlet (Siyah beyaz ve karanlık yap)
+    world.style.filter = 'grayscale(100%) brightness(0.3)';
+    statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
     statusText.style.color = "#ef4444";
-  }
-}
-
-async function processVideo() {
-  if (!cameraStarted) return;
-  await faceMesh.send({image: video});
-  animationFrameId = requestAnimationFrame(processVideo);
-}
-
-setTimeout(initCamera, 500);
-createWorld();
-
-function onResults(results) {
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-    faceLandmarks = results.multiFaceLandmarks[0];
-    
-    const leftMouth = faceLandmarks[61];
-    const rightMouth = faceLandmarks[291];
-    const topLip = faceLandmarks[13];
-    const bottomLip = faceLandmarks[14];
-
-    const mouthWidth = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
-    const mouthHeight = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
-    const smileRatio = mouthWidth / mouthHeight;
-
-    // Gülümseme Algılandıysa
-    if (smileRatio > 3.5) {
-      if (!isSmiling) {
-        isSmiling = true;
-        statusText.innerText = "🌿 DOĞA CANLANIYOR!";
-        statusText.style.color = "#4ade80";
-        updateWorld(true); // Dünyayı yeşert
-        for(let i=0; i<40; i++) createParticle(true);
-        playSound('good');
-      }
-    } else {
-      if (isSmiling) {
-        isSmiling = false;
-        statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
-        statusText.style.color = "#ef4444";
-        updateWorld(false); // Dünyayı karart
-        for(let i=0; i<30; i++) createParticle(false);
-        playSound('bad');
-      }
-    }
-    drawAura();
-  } else {
-    statusText.innerText = "Yüz Algılanamadı...";
-    statusText.style.color = "#fff";
-    if (isSmiling) {
-       isSmiling = false;
-       updateWorld(false);
-    }
-  }
-
-  drawParticles();
-  ctx.restore();
-}
-
-function drawAura() {
-  if (!faceLandmarks) return;
-  const nose = faceLandmarks[1];
-  const x = (1 - nose.x) * canvas.width;
-  const y = nose.y * canvas.height;
-  const radius = 150 + Math.sin(Date.now() * 0.005) * 20;
-
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = isSmiling ? 'rgba(74, 222, 128, 0.6)' : 'rgba(239, 68, 68, 0.6)';
-  ctx.lineWidth = 8;
-  ctx.stroke();
-  ctx.shadowBlur = 20;
-  ctx.shadowColor = isSmiling ? '#4ade80' : '#ef4444';
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-}
-
-function createParticle(isGreen) {
-  const x = Math.random() * canvas.width;
-  const y = canvas.height + 20;
-  particles.push({
-    x: x, y: y,
-    vx: (Math.random() - 0.5) * 4,
-    vy: -Math.random() * 5 - 2,
-    size: Math.random() * 15 + 10,
-    maxLife: 100 + Math.random() * 100,
-    isGreen: isGreen,
-    rot: Math.random() * Math.PI * 2,
-    rotSpeed: (Math.random() - 0.5) * 0.1
-  });
-}
-
-function drawParticles() {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    let p = particles[i];
-    p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.rot += p.rotSpeed; p.maxLife--;
-    if (p.maxLife <= 0) { particles.splice(i, 1); continue; }
-    ctx.save();
-    ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.maxLife / 100);
-    if (p.isGreen) {
-      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#166534'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0); ctx.stroke();
-    } else {
-      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
+    playSound('bad');
   }
 }
 </script>
