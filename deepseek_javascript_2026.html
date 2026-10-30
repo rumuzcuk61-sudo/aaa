@@ -9,25 +9,50 @@
   body { background: #000; overflow: hidden; font-family: sans-serif; color: #fff; }
   #cam, #scene { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
   #cam { transform: scaleX(-1); opacity: 0.4; z-index: 1; }
-  #scene { z-index: 2; }
+  #scene { z-index: 2; pointer-events: none; }
   #hud {
     position: fixed; top: 20px; left: 20px; z-index: 10;
     background: rgba(0,0,0,0.7); padding: 15px 20px;
     border-radius: 12px; border: 1px solid #4ade80;
+    backdrop-filter: blur(10px);
   }
   h1 { font-size: 1.2rem; color: #4ade80; margin-bottom: 8px; }
   #status { color: #fbbf24; font-weight: bold; }
-  #status.happy { color: #4ade80; }
+  #status.happy { color: #4ade80; text-shadow: 0 0 10px #4ade80; }
+  
+  /* YÜKLEME EKRANI İÇİN EKSİK OLAN KISIM */
+  #loader {
+    position: fixed; inset: 0; z-index: 100;
+    background: #0a1f0a;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; transition: opacity 0.5s;
+  }
+  .spinner {
+    width: 50px; height: 50px; border-radius: 50%;
+    border: 3px solid rgba(74, 222, 128, 0.2);
+    border-top-color: #4ade80;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 </head>
 <body>
+
+<!-- YÜKLEME EKRANI -->
+<div id="loader">
+  <h2 style="color:#4ade80; letter-spacing:2px;">EKOSFER</h2>
+  <div class="spinner"></div>
+  <p style="color:#8bbf9a; font-size:0.9rem;">Yapay zeka modeli yükleniyor...</p>
+</div>
+
 <video id="video" autoplay playsinline muted style="display:none"></video>
 <canvas id="cam"></canvas>
 <canvas id="scene"></canvas>
+
 <div id="hud">
   <h1>🌿 EKOSFER</h1>
-  <span id="status">Yüz aranıyor...</span>
+  <span id="status">Kamera başlatılıyor...</span>
 </div>
 
 <script>
@@ -37,6 +62,7 @@ const camCtx = camCanvas.getContext('2d');
 const scene = document.getElementById('scene');
 const ctx = scene.getContext('2d');
 const statusEl = document.getElementById('status');
+const loader = document.getElementById('loader');
 
 let time = 0;
 let isHappy = false;
@@ -50,7 +76,7 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-// SES
+// SES MOTORU
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -74,15 +100,15 @@ function playBird() {
   }
 }
 
-// MEDIAPIPE
+// MEDIAPIPE KURULUMU
 const faceMesh = new FaceMesh({
   locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
 });
 faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true });
 faceMesh.onResults(onResults);
 
-// KAMERA
-async function start() {
+// KAMERA BAŞLATMA
+async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 1280, height: 720 }
@@ -90,15 +116,21 @@ async function start() {
     video.srcObject = stream;
     video.onloadedmetadata = () => {
       video.play();
+      // KAMERA BAŞLAYINCA YÜKLEME EKRANINI KAPAT
+      loader.style.opacity = '0';
+      setTimeout(() => loader.style.display = 'none', 500);
+      statusEl.textContent = 'Yüz aranıyor...';
       loop();
     };
   } catch (e) {
     statusEl.textContent = 'Kamera izni gerekli!';
     statusEl.style.color = '#ef4444';
+    loader.style.display = 'none'; // Hata olsa bile ekranı kapat
   }
 }
-start();
+startCamera();
 
+// MEDIAPIPE DÖNGÜSÜ
 let busy = false;
 async function loop() {
   if (!busy) {
@@ -109,10 +141,11 @@ async function loop() {
   requestAnimationFrame(loop);
 }
 
+// SONUÇLARI İŞLEME
 function onResults(r) {
   time += 0.03;
 
-  // Kamera arka plan
+  // Kamera arka planı
   camCtx.save();
   camCtx.translate(camCanvas.width, 0);
   camCtx.scale(-1, 1);
@@ -127,32 +160,33 @@ function onResults(r) {
     faceCenter.x = (1 - nose.x) * scene.width;
     faceCenter.y = nose.y * scene.height;
 
-    // Gülümseme
+    // Gülümseme oranı
     const mL = landmarks[61], mR = landmarks[291];
     const tL = landmarks[13], bL = landmarks[14];
     const mw = Math.hypot(mL.x - mR.x, mL.y - mR.y);
     const mh = Math.hypot(tL.x - bL.x, tL.y - bL.y) || 0.001;
     isHappy = (mw / mh) > 3.2;
 
-    statusEl.textContent = isHappy ? '🌿 CANLANIYOR!' : 'GÜLÜMSE';
+    statusEl.textContent = isHappy ? '🌿 EKOBİLİNÇ CANLANIYOR!' : 'DİJİTAL DOĞAYI BESLE (GÜLÜMSE)';
     statusEl.className = isHappy ? 'happy' : '';
 
     if (isHappy && Math.random() > 0.97) playBird();
 
     drawTree();
   } else {
-    statusEl.textContent = 'Kameraya bak...';
+    statusEl.textContent = 'Lütfen kameraya bakın...';
     statusEl.className = '';
   }
 }
 
+// AĞAÇ ÇİZİMİ
 function drawTree() {
   const W = scene.width, H = scene.height;
   const mx = p => (1 - p.x) * W;
   const my = p => p.y * H;
   const cx = faceCenter.x, cy = faceCenter.y;
 
-  // Alın-çene mesafesi = ağaç boyu
+  // Alın (10) - Çene (152) mesafesi ağacın boyunu belirler
   const fH = Math.hypot(mx(landmarks[10]) - mx(landmarks[152]), my(landmarks[10]) - my(landmarks[152]));
   const scale = isHappy ? 1.4 : 1.0;
 
@@ -160,7 +194,7 @@ function drawTree() {
   ctx.translate(cx, cy);
   ctx.scale(scale, scale);
 
-  // GÖVDE
+  // 1. GÖVDE
   const sway = Math.sin(time * 1.5) * 6;
   ctx.beginPath();
   ctx.moveTo(0, fH * 0.4);
@@ -172,11 +206,11 @@ function drawTree() {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // DALLAR (yüz hatlarından)
+  // 2. DALLAR (Kaşlar, elmacık kemikleri, çene köşeleri)
   const branches = [
-    [33, 46], [263, 276],   // kaşlar
-    [70, 63], [300, 293],   // elmacık
-    [172, 136], [397, 365], // çene
+    [33, 46], [263, 276],   // Kaşlar
+    [70, 63], [300, 293],   // Elmacık
+    [172, 136], [397, 365], // Çene
   ];
 
   branches.forEach(([a, b], i) => {
@@ -204,7 +238,7 @@ function drawTree() {
 
   ctx.restore();
 
-  // Göz ışıması
+  // 3. GÖZLERDEN IŞIK SAÇILMASI
   if (isHappy) {
     [159, 386].forEach((idx, i) => {
       const ex = mx(landmarks[idx]), ey = my(landmarks[idx]);
@@ -219,7 +253,7 @@ function drawTree() {
     });
   }
 
-  // Etrafta uçuşanlar
+  // 4. KELEBEKLER / PARÇACIKLAR
   const count = isHappy ? 25 : 8;
   for (let i = 0; i < count; i++) {
     const ang = time * 0.8 + i * Math.PI * 2 / count;
@@ -235,7 +269,7 @@ function drawTree() {
   }
 }
 
-// İlk tıklamada ses izni
+// İlk tıklamada sesi başlat (tarayıcılar otomatik sese izin vermez)
 document.body.addEventListener('click', initAudio, { once: true });
 </script>
 </body>
