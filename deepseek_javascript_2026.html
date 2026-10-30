@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; }
   #cam, #scene { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
-  #cam { transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: saturate(0.5) contrast(1.1); }
+  #cam { transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: saturate(0.6) contrast(1.2); }
   #scene { z-index: 2; pointer-events: none; }
   
   #hud {
@@ -65,10 +65,8 @@ const loaderText = document.getElementById('loaderText');
 
 let time = 0;
 let isHappy = false;
-let faceCenter = { x: 0, y: 0 };
-let faceSize = 100;
 let landmarks = null;
-let smoothFaceH = 100;
+let faceScale = 1;
 
 function resize() {
   camCanvas.width = scene.width = innerWidth;
@@ -93,7 +91,7 @@ function playBird() {
   o.frequency.setValueAtTime(2500 + Math.random() * 1000, now);
   o.frequency.exponentialRampToValueAtTime(3000 + Math.random() * 500, now + 0.1);
   g.gain.setValueAtTime(0, now);
-  g.gain.linearRampToValueAtTime(0.05, now + 0.02);
+  g.gain.linearRampToValueAtTime(0.04, now + 0.02);
   g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
   o.start(now); o.stop(now + 0.25);
 }
@@ -148,31 +146,23 @@ function onResults(r) {
 
   if (r.multiFaceLandmarks && r.multiFaceLandmarks.length > 0) {
     landmarks = r.multiFaceLandmarks[0];
-    const nose = landmarks[1];
     
-    // Ayna modunda yüz merkezi
-    faceCenter.x = (1 - nose.x) * scene.width;
-    faceCenter.y = nose.y * scene.height;
-
-    // Gülümseme testi (Ağız genişliğinin ağız yüksekliğine oranı)
+    // Gülümseme testi
     const leftMouth = landmarks[61], rightMouth = landmarks[291];
     const topLip = landmarks[13], bottomLip = landmarks[14];
     const w = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
     const h = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y) || 0.001;
-    
-    // Gerçekten gülümsediğinde (dişler göründüğünde) tetiklenir
-    isHappy = (w / h) > 3.8;
+    isHappy = (w / h) > 3.8; // Dişler göründüğünde gülümseme
 
     statusEl.textContent = isHappy ? '🌿 EKOBİLİNÇ CANLANIYOR!' : 'DİJİTAL DOĞAYI BESLE (GÜLÜMSE)';
     statusEl.className = isHappy ? 'happy' : '';
 
     if (isHappy && Math.random() > 0.95) playBird();
 
-    // Ağacın boyutunu yüz boyutuna göre ayarla (alın ile çene arası)
+    // Yüz boyutu (Alın ile çene arası)
     const forehead = landmarks[10];
     const chin = landmarks[152];
-    const rawH = Math.hypot((1-forehead.x)-(1-chin.x), forehead.y-chin.y) * scene.height;
-    smoothFaceH = smoothFaceH * 0.9 + rawH * 0.1; // Titremeyi önlemek için yumuşatma
+    faceScale = Math.hypot((1-forehead.x)-(1-chin.x), forehead.y-chin.y) * scene.height;
 
     drawOrganicTree();
   } else {
@@ -181,90 +171,79 @@ function onResults(r) {
   }
 }
 
-// --- SANAT: ORGANİK AĞAÇ ÇİZİMİ ---
+// --- SANAT: YÜZDEN BÜYÜYEN AĞAÇ ---
 function drawOrganicTree() {
   const W = scene.width, H = scene.height;
-  const mx = p => (1 - p.x) * W;
-  const my = p => p.y * H;
-  const cx = faceCenter.x;
-  const cy = faceCenter.y;
   
-  // Gülümseyince ağaç büyür
-  const treeScale = isHappy ? 1.3 : 1.0;
+  // Ayna koordinat düzeltmesi (Yapay zekanın sağı bizim solumuz)
+  const toX = p => (1 - p.x) * W;
+  const toY = p => p.y * H;
 
-  // 1. GÖVDE (Burun ucundan başlar, yukarı doğru kıvrılarak çıkar)
-  const trunkSway = Math.sin(time * 1.5) * 15; // Rüzgarda salınım
-  const trunkTopY = cy - smoothFaceH * 0.9 * treeScale; // Kafanın üstüne doğru uzanır
-  
-  ctx.beginPath();
-  ctx.moveTo(cx, cy); // Burun ucu
-  ctx.bezierCurveTo(
-    cx + trunkSway * 0.5, cy - smoothFaceH * 0.3,
-    cx - trunkSway, cy - smoothFaceH * 0.6,
-    cx + trunkSway, trunkTopY
-  );
-  
-  // Işıyan gövde
-  ctx.strokeStyle = isHappy ? '#4ade80' : '#166534';
-  ctx.lineWidth = isHappy ? 6 : 4;
-  ctx.lineCap = 'round';
-  if (isHappy) { ctx.shadowBlur = 25; ctx.shadowColor = '#4ade80'; }
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  const grow = isHappy ? 1.5 : 1.0;
+  const glow = isHappy ? 20 : 0;
+  const hue = 120 + Math.sin(time * 2) * 20;
 
-  // 2. YÜZDEN ÇIKAN DALLAR (Kaşlar, elmacık, çene)
-  // Her dal yüzün gerçek bir noktasından başlar ve dışa doğru uzar
-  const branches = [
-    { start: landmarks[33], end: landmarks[46], dir: -1 },   // Sol kaş
-    { start: landmarks[263], end: landmarks[276], dir: 1 },  // Sağ kaş
-    { start: landmarks[70], end: landmarks[63], dir: -1 },   // Sol elmacık
-    { start: landmarks[300], end: landmarks[293], dir: 1 },  // Sağ elmacık
-    { start: landmarks[172], end: landmarks[136], dir: -1 }, // Sol çene
-    { start: landmarks[397], end: landmarks[365], dir: 1 }   // Sağ çene
-  ];
-
-  branches.forEach((b, i) => {
-    const sx = mx(b.start), sy = my(b.start);
-    const ex = mx(b.end), ey = my(b.end);
+  // 1. DAL VE YAPRAK ÇİZİM FONKSİYONU
+  function drawBranch(startIdx, endIdx, dir) {
+    const sx = toX(landmarks[startIdx]);
+    const sy = toY(landmarks[startIdx]);
+    const ex = toX(landmarks[endIdx]);
+    const ey = toY(landmarks[endIdx]);
     
-    // Dalın uzunluğu ve büyümesi
-    const grow = isHappy ? 1.6 : 1.0;
-    const ctrlX = sx + (ex - sx) * 0.5 + b.dir * 30;
-    const ctrlY = sy + (ey - sy) * 0.5 - 20;
-    const finalX = sx + (ex - sx) * grow;
-    const finalY = sy + (ey - sy) * grow - (isHappy ? 20 : 0);
+    // Dalın dışa doğru uzaması (Ayna düzeltmesiyle yönü ters çevir)
+    const dx = (ex - sx) * dir; 
+    const dy = (ey - sy) * dir;
+    
+    const len = Math.hypot(dx, dy) * grow;
+    const angle = Math.atan2(dy, dx);
+    
+    // Yeni bitiş noktası
+    const fx = sx + Math.cos(angle) * len;
+    const fy = sy + Math.sin(angle) * len;
 
-    // Dal çizgisi
+    // Dalı çiz
     ctx.beginPath();
     ctx.moveTo(sx, sy);
-    ctx.quadraticCurveTo(ctrlX, ctrlY, finalX, finalY);
-    ctx.strokeStyle = isHappy ? '#22c55e' : '#15803d';
+    ctx.quadraticCurveTo(sx + dx * 0.5, sy + dy * 0.5 - 20, fx, fy);
+    ctx.strokeStyle = isHappy ? '#4ade80' : '#166534';
     ctx.lineWidth = isHappy ? 3 : 2;
+    ctx.lineCap = 'round';
+    if (isHappy) { ctx.shadowBlur = glow; ctx.shadowColor = '#4ade80'; }
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // Dalın ucuna yapraklar ekle
-    const leafCount = isHappy ? 3 : 1;
-    for (let l = 0; l < leafCount; l++) {
-      const offset = l * 0.4 - 0.4;
-      const lx = finalX + Math.cos(i + offset) * 10;
-      const ly = finalY + Math.sin(i + offset) * 10;
-      
-      ctx.beginPath();
-      ctx.ellipse(lx, ly, isHappy ? 12 : 7, isHappy ? 6 : 4, Math.atan2(finalY - sy, finalX - sx) + offset, 0, Math.PI * 2);
-      ctx.fillStyle = isHappy 
-        ? `hsla(${110 + Math.sin(time * 2 + i) * 30}, 80%, 60%, 0.9)` 
-        : 'rgba(21, 128, 61, 0.6)';
-      ctx.fill();
-    }
-  });
+    // Yaprakları çiz
+    ctx.beginPath();
+    ctx.ellipse(fx, fy, isHappy ? 15 : 8, isHappy ? 7 : 4, angle, 0, Math.PI * 2);
+    ctx.fillStyle = isHappy ? `hsla(${hue}, 80%, 60%, 0.9)` : 'rgba(21, 128, 61, 0.6)';
+    ctx.fill();
+  }
 
-  // 3. GÖZLERDEN SAÇILAN IŞIK
+  // 2. DALLARI YÜZ HATLARINA UYGULA
+  // 33: Sol kaş başı, 263: Sağ kaş başı, 70: Sol elmacık, 300: Sağ elmacık
+  // 172: Sol çene, 397: Sağ çene, 105: Sol alın, 334: Sağ alın
+  
+  // Sol taraf (Ayna olduğu için ekranda sağda görünür, dir = -1)
+  drawBranch(33, 46, -1);  // Sol kaş
+  drawBranch(70, 63, -1);  // Sol elmacık
+  drawBranch(172, 136, -1); // Sol çene
+  
+  // Sağ taraf (Ayna olduğu için ekranda solda görünür, dir = 1)
+  drawBranch(263, 276, 1); // Sağ kaş
+  drawBranch(300, 293, 1); // Sağ elmacık
+  drawBranch(397, 365, 1); // Sağ çene
+  
+  // Alın bölgesi (Yukarı doğru)
+  drawBranch(105, 66, -1); 
+  drawBranch(334, 296, 1);
+
+  // 3. GÖZLERDEN IŞIK SAÇILMASI
   if (isHappy) {
     [159, 386].forEach((idx) => {
-      const ex = mx(landmarks[idx]), ey = my(landmarks[idx]);
-      const r = 40 + Math.sin(time * 5) * 10;
+      const ex = toX(landmarks[idx]), ey = toY(landmarks[idx]);
+      const r = 45 + Math.sin(time * 5) * 15;
       const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r);
-      g.addColorStop(0, 'rgba(251, 191, 36, 0.4)'); // Altın sarısı
+      g.addColorStop(0, 'rgba(251, 191, 36, 0.5)'); // Altın sarısı
       g.addColorStop(0.5, 'rgba(74, 222, 128, 0.2)'); // Yeşil
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
@@ -272,20 +251,6 @@ function drawOrganicTree() {
       ctx.arc(ex, ey, r, 0, Math.PI * 2);
       ctx.fill();
     });
-  }
-
-  // 4. YÜZÜN ETRAFINDA UÇUŞAN KELEBEKLER / PARÇACIKLAR
-  const particleCount = isHappy ? 20 : 6;
-  for (let i = 0; i < particleCount; i++) {
-    const angle = time * 1.2 + (i * Math.PI * 2 / particleCount);
-    const radius = smoothFaceH * 0.8 + Math.sin(time * 3 + i) * 20;
-    const px = cx + Math.cos(angle) * radius;
-    const py = cy + Math.sin(angle) * radius;
-
-    ctx.beginPath();
-    ctx.arc(px, py, isHappy ? 4 : 2, 0, Math.PI * 2);
-    ctx.fillStyle = isHappy ? (i % 2 === 0 ? '#fbbf24' : '#4ade80') : 'rgba(100,100,100,0.4)';
-    ctx.fill();
   }
 }
 
