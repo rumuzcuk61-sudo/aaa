@@ -2,59 +2,62 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>EKOSFER: Görsel Test</title>
+<title>EKOSFER: Duygu Aynası</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; height: 100vh; display: flex; justify-content: center; align-items: center; }
+  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
+  #container { position: relative; width: 100vw; height: 100vh; }
+  video { display: none; }
   
-  /* Arka plan resmi (Doğa) */
-  #world { position: absolute; inset: 0; background: url('https://images.unsplash.com/photo-1511497584788-876760111969?q=80&w=2000&auto=format&fit=crop') center/cover; filter: grayscale(100%) brightness(0.3); transition: all 1.5s ease; z-index: 1; }
+  /* 3D dünyayı çizeceğimiz katman */
+  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 2; }
   
-  /* Arayüz */
-  #ui { position: relative; z-index: 10; text-align: center; }
-  h1 { font-size: 3rem; color: #4ade80; text-shadow: 0 0 20px #000; margin-bottom: 10px; }
-  p { font-size: 1.2rem; color: #fff; text-shadow: 0 0 10px #000; margin-bottom: 40px; }
-  
-  /* Butonlar */
-  .btn-group { display: flex; gap: 20px; justify-content: center; }
-  button { padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 30px; cursor: pointer; transition: 0.3s; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
-  .btn-happy { background: #4ade80; color: #000; }
-  .btn-happy:hover { transform: scale(1.1); box-shadow: 0 0 30px #4ade80; }
-  .btn-sad { background: #ef4444; color: #fff; }
-  .btn-sad:hover { transform: scale(1.1); box-shadow: 0 0 30px #ef4444; }
-  
-  /* Yazı */
-  #status { position: absolute; bottom: 50px; left: 0; width: 100%; text-align: center; font-size: 2rem; font-weight: bold; text-shadow: 0 0 20px #000; z-index: 10; transition: 0.3s; }
+  #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 12px; border: 2px solid #4ade80; pointer-events: none; z-index: 10; }
+  h1 { margin: 0; font-size: 1.5rem; color: #4ade80; }
+  p { margin: 5px 0 0 0; font-size: 0.9rem; color: #ccc; }
+  #status { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000, 0 0 10px #000; transition: 0.3s; z-index: 10; text-align: center; width: 100%; }
+  #inst { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; font-size: 0.8rem; color: #fbbf24; border: 1px solid #fbbf24; z-index: 10; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
-
-<!-- Arka plan -->
-<div id="world"></div>
-
-<!-- Arayüz -->
-<div id="ui">
-  <h1>EKOSFER</h1>
-  <p>Doğanın halini değiştirmek için bir butona tıkla!</p>
-  <div class="btn-group">
-    <button class="btn-happy" onclick="changeWorld(true)">🌿 DOĞAYI YEŞERT</button>
-    <button class="btn-sad" onclick="changeWorld(false)">🌫️ DOĞAYI KİRLET</button>
+<div id="container">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  
+  <div id="ui">
+    <h1>EKOSFER: Duygu Aynası</h1>
+    <p>Gülümse, vadini yeşert! | Üzülme, kirlilik artar...</p>
   </div>
+  <div id="inst">GİRESUN BULANCAK<br>BİLİM VE SANAT MERKEZİ</div>
+  <div id="status">Kamera Bekleniyor...</div>
 </div>
 
-<div id="status" style="color:#fff;">Bekleniyor...</div>
-
 <script>
-const world = document.getElementById('world');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
 const statusText = document.getElementById('status');
-let isHappy = false;
 
-// Ses Efektleri
+let isSmiling = false;
+let faceLandmarks = null;
+let particles = [];
+let cameraStarted = false;
+let worldTime = 0;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- SES MOTORU ---
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
-
 function playSound(type) {
   initAudio();
   if (!audioCtx) return;
@@ -80,20 +83,192 @@ function playSound(type) {
   }
 }
 
-function changeWorld(happy) {
-  isHappy = happy;
-  if (happy) {
-    // Doğayı canlandır (Görsel filtresini kaldır)
-    world.style.filter = 'grayscale(0%) brightness(1.1)';
-    statusText.innerText = "🌿 DOĞA CANLANIYOR!";
-    statusText.style.color = "#4ade80";
-    playSound('good');
+// --- VADİ ÇİZİMİ ---
+function drawWorld() {
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  // Gökyüzü (Mutluysa mavi, üzgünse gri)
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+  if (isSmiling) {
+    skyGrad.addColorStop(0, '#38bdf8');
+    skyGrad.addColorStop(1, '#bae6fd');
   } else {
-    // Doğayı kirlet (Siyah beyaz ve karanlık yap)
-    world.style.filter = 'grayscale(100%) brightness(0.3)';
-    statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
+    skyGrad.addColorStop(0, '#1e293b');
+    skyGrad.addColorStop(1, '#475569');
+  }
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Güneş
+  ctx.beginPath();
+  ctx.arc(w * 0.8, h * 0.2, 60, 0, Math.PI * 2);
+  ctx.fillStyle = isSmiling ? '#fff59d' : '#64748b';
+  ctx.shadowBlur = isSmiling ? 50 : 0;
+  ctx.shadowColor = '#fbbf24';
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Zemin
+  ctx.fillStyle = isSmiling ? '#166534' : '#451a03';
+  ctx.fillRect(0, h * 0.7, w, h * 0.3);
+
+  // Ağaçlar
+  const treeCount = 7;
+  for (let i = 0; i < treeCount; i++) {
+    const x = (i * w) / (treeCount - 1);
+    const y = h * 0.7;
+    
+    // Gövde
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(x - 10, y - 100, 20, 100);
+    
+    // Yapraklar (Sallanma efekti)
+    const sway = Math.sin(worldTime + i) * 10;
+    ctx.beginPath();
+    ctx.arc(x + sway, y - 130, 50, 0, Math.PI * 2);
+    ctx.fillStyle = isSmiling ? '#22c55e' : '#3f3f46';
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.arc(x + sway - 30, y - 100, 35, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.arc(x + sway + 30, y - 100, 35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Kirlilik Bulutları (Üzgünse çıkar)
+  if (!isSmiling) {
+    for (let i = 0; i < 5; i++) {
+      const px = (i * w / 4) + Math.sin(worldTime + i)*30;
+      const py = h * 0.4 + Math.cos(worldTime + i*2)*30;
+      ctx.beginPath();
+      ctx.arc(px, py, 40, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(75, 85, 99, 0.5)';
+      ctx.fill();
+    }
+  }
+}
+
+// --- YAPAY ZEKA (MediaPipe) ---
+const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
+faceMesh.onResults(onResults);
+
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play();
+      cameraStarted = true;
+      processVideo();
+    };
+  } catch (err) {
+    statusText.innerText = "Kamera izni verilmedi!";
     statusText.style.color = "#ef4444";
-    playSound('bad');
+  }
+}
+async function processVideo() {
+  if (!cameraStarted) return;
+  await faceMesh.send({image: video});
+  requestAnimationFrame(processVideo);
+}
+setTimeout(initCamera, 500);
+
+function onResults(results) {
+  worldTime += 0.02;
+  
+  // Arkadaki dünyayı çiz
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawWorld();
+
+  // Yapay zeka yüzü bulduysa
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    faceLandmarks = results.multiFaceLandmarks[0];
+    
+    const leftMouth = faceLandmarks[61];
+    const rightMouth = faceLandmarks[291];
+    const topLip = faceLandmarks[13];
+    const bottomLip = faceLandmarks[14];
+
+    const mouthWidth = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
+    const mouthHeight = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
+    const smileRatio = mouthWidth / mouthHeight;
+
+    if (smileRatio > 3.5) {
+      if (!isSmiling) {
+        isSmiling = true;
+        statusText.innerText = "🌿 VADİ YEŞERİYOR!";
+        statusText.style.color = "#4ade80";
+        for(let i=0; i<40; i++) createParticle(true);
+        playSound('good');
+      }
+    } else {
+      if (isSmiling) {
+        isSmiling = false;
+        statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
+        statusText.style.color = "#ef4444";
+        for(let i=0; i<30; i++) createParticle(false);
+        playSound('bad');
+      }
+    }
+    
+    // Yüzüne aura çiz
+    const nose = faceLandmarks[1];
+    const x = (1 - nose.x) * canvas.width;
+    const y = nose.y * canvas.height;
+    const radius = 120 + Math.sin(worldTime * 10) * 10;
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = isSmiling ? 'rgba(74, 222, 128, 0.5)' : 'rgba(239, 68, 68, 0.5)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+  } else {
+    statusText.innerText = "Yüzünü göster...";
+    statusText.style.color = "#fff";
+    if (isSmiling) {
+       isSmiling = false;
+    }
+  }
+
+  drawParticles();
+  ctx.restore();
+}
+
+function createParticle(isGreen) {
+  const x = Math.random() * canvas.width;
+  const y = canvas.height + 20;
+  particles.push({
+    x: x, y: y,
+    vx: (Math.random() - 0.5) * 4,
+    vy: -Math.random() * 5 - 2,
+    size: Math.random() * 15 + 10,
+    maxLife: 100 + Math.random() * 100,
+    isGreen: isGreen,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() - 0.5) * 0.1
+  });
+}
+
+function drawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.rot += p.rotSpeed; p.maxLife--;
+    if (p.maxLife <= 0) { particles.splice(i, 1); continue; }
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.maxLife / 100);
+    if (p.isGreen) {
+      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#166534'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0); ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 }
 </script>
