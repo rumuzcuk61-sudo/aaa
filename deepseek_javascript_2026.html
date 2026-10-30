@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; }
   #cam, #scene { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
-  #cam { transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: saturate(0.6) contrast(1.2); }
+  #cam { transform: scaleX(-1); opacity: 0.3; z-index: 1; filter: saturate(0.5) contrast(1.1); }
   #scene { z-index: 2; pointer-events: none; }
   
   #hud {
@@ -135,7 +135,7 @@ function initFaceMesh() {
 function onResults(r) {
   time += 0.04;
   
-  // Kamera arka planı
+  // Kamera arka planı (Ayna modu)
   camCtx.save();
   camCtx.translate(camCanvas.width, 0);
   camCtx.scale(-1, 1);
@@ -147,12 +147,12 @@ function onResults(r) {
   if (r.multiFaceLandmarks && r.multiFaceLandmarks.length > 0) {
     landmarks = r.multiFaceLandmarks[0];
     
-    // Gülümseme testi
+    // Gülümseme testi (Ağız genişliği / Yükseklik)
     const leftMouth = landmarks[61], rightMouth = landmarks[291];
     const topLip = landmarks[13], bottomLip = landmarks[14];
     const w = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
     const h = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y) || 0.001;
-    isHappy = (w / h) > 3.8; // Dişler göründüğünde gülümseme
+    isHappy = (w / h) > 3.8; 
 
     statusEl.textContent = isHappy ? '🌿 EKOBİLİNÇ CANLANIYOR!' : 'DİJİTAL DOĞAYI BESLE (GÜLÜMSE)';
     statusEl.className = isHappy ? 'happy' : '';
@@ -171,16 +171,16 @@ function onResults(r) {
   }
 }
 
-// --- SANAT: YÜZDEN BÜYÜYEN AĞAÇ ---
+// --- SANAT: YÜZDEN BÜYÜYEN AĞAÇ (GÖVDESİZ) ---
 function drawOrganicTree() {
   const W = scene.width, H = scene.height;
   
-  // Ayna koordinat düzeltmesi (Yapay zekanın sağı bizim solumuz)
+  // Ayna koordinat düzeltmesi
   const toX = p => (1 - p.x) * W;
   const toY = p => p.y * H;
 
-  const grow = isHappy ? 1.5 : 1.0;
-  const glow = isHappy ? 20 : 0;
+  const grow = isHappy ? 1.6 : 1.0;
+  const glow = isHappy ? 25 : 0;
   const hue = 120 + Math.sin(time * 2) * 20;
 
   // 1. DAL VE YAPRAK ÇİZİM FONKSİYONU
@@ -190,14 +190,13 @@ function drawOrganicTree() {
     const ex = toX(landmarks[endIdx]);
     const ey = toY(landmarks[endIdx]);
     
-    // Dalın dışa doğru uzaması (Ayna düzeltmesiyle yönü ters çevir)
+    // Dalın yönü (Yüzün dışına doğru)
     const dx = (ex - sx) * dir; 
     const dy = (ey - sy) * dir;
     
     const len = Math.hypot(dx, dy) * grow;
     const angle = Math.atan2(dy, dx);
     
-    // Yeni bitiş noktası
     const fx = sx + Math.cos(angle) * len;
     const fy = sy + Math.sin(angle) * len;
 
@@ -220,22 +219,19 @@ function drawOrganicTree() {
   }
 
   // 2. DALLARI YÜZ HATLARINA UYGULA
-  // 33: Sol kaş başı, 263: Sağ kaş başı, 70: Sol elmacık, 300: Sağ elmacık
+  // 33: Sol kaş, 263: Sağ kaş, 70: Sol elmacık, 300: Sağ elmacık
   // 172: Sol çene, 397: Sağ çene, 105: Sol alın, 334: Sağ alın
   
-  // Sol taraf (Ayna olduğu için ekranda sağda görünür, dir = -1)
-  drawBranch(33, 46, -1);  // Sol kaş
-  drawBranch(70, 63, -1);  // Sol elmacık
-  drawBranch(172, 136, -1); // Sol çene
+  drawBranch(33, 46, -1);  // Sol kaş (Dışa)
+  drawBranch(70, 63, -1);  // Sol elmacık (Dışa)
+  drawBranch(172, 136, -1); // Sol çene (Dışa)
   
-  // Sağ taraf (Ayna olduğu için ekranda solda görünür, dir = 1)
-  drawBranch(263, 276, 1); // Sağ kaş
-  drawBranch(300, 293, 1); // Sağ elmacık
-  drawBranch(397, 365, 1); // Sağ çene
+  drawBranch(263, 276, 1); // Sağ kaş (Dışa)
+  drawBranch(300, 293, 1); // Sağ elmacık (Dışa)
+  drawBranch(397, 365, 1); // Sağ çene (Dışa)
   
-  // Alın bölgesi (Yukarı doğru)
-  drawBranch(105, 66, -1); 
-  drawBranch(334, 296, 1);
+  drawBranch(105, 66, -1); // Sol alın (Yukarı)
+  drawBranch(334, 296, 1); // Sağ alın (Yukarı)
 
   // 3. GÖZLERDEN IŞIK SAÇILMASI
   if (isHappy) {
