@@ -2,117 +2,464 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>EKOSFER: Ekobilinç Ağacı</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a1f0a">
+<meta name="description" content="EKOSFER: Yüzünüzü sanata dönüştüren biyofilik etkileşimli sanat eseri.">
+<title>EKOSFER · Ekobilinç Ağacı</title>
+
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
-  #container { position: relative; width: 100vw; height: 100vh; }
-  video { display: none; }
-  
-  /* Kamera görüntüsü arka planda, ayna efektiyle */
-  canvas#webcamCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.4; z-index: 1; }
-  
-  /* Sanat ve animasyon katmanı */
-  canvas#sceneCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-  
-  #hud { position: absolute; top: 30px; left: 30px; z-index: 10; background: rgba(10, 20, 10, 0.8); padding: 20px; border-radius: 15px; border: 1px solid rgba(74, 222, 128, 0.5); backdrop-filter: blur(10px); }
-  h1 { margin: 0; font-size: 2rem; color: #4ade80; text-shadow: 0 0 10px #000; }
-  p { margin: 5px 0 0 0; font-size: 1rem; color: #ccc; }
-  #status { color: #fbbf24; font-weight: bold; margin-top: 10px; display: block; font-size: 1.3rem; }
+  :root {
+    --green-bright: #4ade80;
+    --green-mid: #22c55e;
+    --green-deep: #166534;
+    --gold: #fbbf24;
+    --danger: #ef4444;
+    --bg: #000;
+    --glass: rgba(10, 25, 12, 0.72);
+    --glass-border: rgba(74, 222, 128, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: #fff;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  #container { position: relative; width: 100vw; height: 100vh; height: 100dvh; }
+  #video { display: none; }
+
+  canvas#webcamCanvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    transform: scaleX(-1); opacity: 0.32;
+    z-index: 1; filter: saturate(0.7) contrast(1.05);
+  }
+  canvas#sceneCanvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    z-index: 2; pointer-events: none;
+  }
+
+  /* ============ HUD ============ */
+  #hud {
+    position: absolute; top: 20px; left: 20px; z-index: 10;
+    background: var(--glass);
+    padding: 16px 20px; border-radius: 18px;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    max-width: min(340px, calc(100vw - 40px));
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(74, 222, 128, 0.08) inset;
+    transition: transform 0.3s ease;
+  }
+  #hud h1 {
+    margin: 0; font-size: clamp(1.1rem, 3vw, 1.5rem);
+    color: var(--green-bright); letter-spacing: 1.5px;
+    text-shadow: 0 0 18px rgba(74, 222, 128, 0.6);
+    display: flex; align-items: center; gap: 8px;
+  }
+  #hud h1 .leaf { font-size: 1.2em; animation: leafSway 3s ease-in-out infinite; }
+  @keyframes leafSway {
+    0%, 100% { transform: rotate(-8deg); }
+    50% { transform: rotate(8deg); }
+  }
+  #hud .subtitle {
+    margin: 6px 0 12px; font-size: 0.82rem; color: #a7d9b4;
+    line-height: 1.4; opacity: 0.9;
+  }
+
+  #status {
+    display: block; font-weight: 700; font-size: 1rem;
+    color: var(--gold); margin: 8px 0;
+    transition: color 0.3s, text-shadow 0.3s;
+    letter-spacing: 0.5px;
+  }
+  #status.happy { color: var(--green-bright); text-shadow: 0 0 12px var(--green-bright); }
+
+  #ecoBar {
+    height: 8px; background: rgba(255,255,255,0.08);
+    border-radius: 99px; overflow: hidden; margin: 10px 0 8px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+  }
+  #ecoBarFill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--green-mid), var(--green-bright), var(--gold));
+    border-radius: 99px;
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 12px var(--green-bright);
+  }
+
+  .metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
+    font-size: 0.72rem; color: #8bbf9a; margin-top: 8px;
+    font-family: 'SF Mono', Consolas, monospace;
+  }
+  .metrics span b { color: #e6f7ea; font-weight: 600; }
+
+  /* ============ DEMO MODU UYARISI ============ */
+  #demoNotice {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: none;
+    background: var(--glass); border: 1px solid var(--gold);
+    padding: 10px 18px; border-radius: 99px;
+    font-size: 0.85rem; color: var(--gold);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 24px rgba(251, 191, 36, 0.25);
+    white-space: nowrap; max-width: calc(100vw - 40px);
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  #demoNotice.show { display: block; animation: slideUp 0.5s ease; }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translate(-50%, 20px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  /* ============ YÜKLEME EKRANI ============ */
+  #loader {
+    position: absolute; inset: 0; z-index: 100;
+    background: radial-gradient(circle at 50% 50%, #0a1f0a 0%, #000 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; transition: opacity 0.8s ease;
+  }
+  #loader.hidden { opacity: 0; pointer-events: none; }
+  #loader h2 {
+    color: var(--green-bright); font-size: clamp(1.4rem, 4vw, 2.2rem);
+    margin: 0; letter-spacing: 3px; text-shadow: 0 0 30px var(--green-bright);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.65; }
+  }
+  .spinner {
+    width: 56px; height: 56px; border-radius: 50%;
+    border: 3px solid rgba(74, 222, 128, 0.15);
+    border-top-color: var(--green-bright);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loader p { color: #8bbf9a; font-size: 0.9rem; margin: 0; }
+
+  /* ============ ERİŞİLEBİLİRLİK ============ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  @media (max-width: 600px) {
+    #hud { top: 12px; left: 12px; padding: 12px 14px; }
+    #hud .subtitle { display: none; }
+    .metrics { font-size: 0.66rem; }
+  }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
 <div id="container">
-  <video id="video" autoplay playsinline></video>
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="webcamCanvas"></canvas>
   <canvas id="sceneCanvas"></canvas>
-  
-  <div id="hud">
-    <h1>EKOSFER: Ekobilinç Ağacı</h1>
-    <p>Kameraya bak, yüzünün doğayla bütünleşmesini izle.</p>
-    <span id="status">Yüz Aranıyor...</span>
+
+  <div id="hud" role="status" aria-live="polite">
+    <h1><span class="leaf">🌿</span> EKOSFER</h1>
+    <p class="subtitle">Kameraya bak, yüzünün doğayla bütünleşmesini izle. Gülümse — ağaç canlanır.</p>
+    <span id="status">Yüz aranıyor…</span>
+    <div id="ecoBar" aria-label="Ekobilinç skoru"><div id="ecoBarFill"></div></div>
+    <div class="metrics">
+      <span>FPS: <b id="mFps">—</b></span>
+      <span>Gülümseme: <b id="mSmile">0.0s</b></span>
+      <span>Skor: <b id="mScore">0</b></span>
+      <span>Stabilite: <b id="mStab">—</b></span>
+    </div>
+  </div>
+
+  <div id="demoNotice">✨ Kamera yok — fare/dokunmatik ile yüzü hareket ettir!</div>
+
+  <div id="loader">
+    <h2>EKOSFER</h2>
+    <div class="spinner"></div>
+    <p id="loaderMsg">Yapay zekâ modeli yükleniyor…</p>
   </div>
 </div>
 
 <script>
-const video = document.getElementById('video');
-const webcamCanvas = document.getElementById('webcamCanvas');
-const webcamCtx = webcamCanvas.getContext('2d');
-const sceneCanvas = document.getElementById('sceneCanvas');
-const ctx = sceneCanvas.getContext('2d');
-const statusText = document.getElementById('status');
+'use strict';
 
-let cameraStarted = false;
-let time = 0;
-let faceData = { x: 0, y: 0, smile: 0, detected: false, landmarks: null };
+/* ============================================================
+   EKOSFER v2.0 — Ekobilinç Ağacı
+   Yüz landmark tabanlı prosedürel etkileşimli sanat
+   ============================================================ */
+
+// ---------- DOM ----------
+const video         = document.getElementById('video');
+const webcamCanvas  = document.getElementById('webcamCanvas');
+const webcamCtx     = webcamCanvas.getContext('2d', { alpha: false });
+const sceneCanvas   = document.getElementById('sceneCanvas');
+const ctx           = sceneCanvas.getContext('2d');
+const statusEl      = document.getElementById('status');
+const ecoBarFill    = document.getElementById('ecoBarFill');
+const mFps          = document.getElementById('mFps');
+const mSmile        = document.getElementById('mSmile');
+const mScore        = document.getElementById('mScore');
+const mStab         = document.getElementById('mStab');
+const loader        = document.getElementById('loader');
+const loaderMsg     = document.getElementById('loaderMsg');
+const demoNotice    = document.getElementById('demoNotice');
+
+// ---------- Sabitler ----------
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const IS_MOBILE      = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const MAX_PARTICLES  = IS_MOBILE ? 60 : 120;
+
+// ---------- Durum ----------
+const state = {
+  time: 0,
+  cameraStarted: false,
+  demoMode: false,
+  modelReady: false,
+  faceDetected: false,
+  smileRatio: 0,
+  isHappy: false,
+  smileAccum: 0,          // toplam gülümseme süresi (sn)
+  faceLandmarks: null,
+  faceCenter: { x: 0, y: 0 },
+  faceSize: 300,
+  stability: 0,           // 0..1
+  prevCenter: null,
+  ecoScore: 0,            // 0..100
+  mouse: { x: 0.5, y: 0.5, active: false },
+  particles: [],
+  butterflies: [],
+  fireflies: [],
+  leaves: [],
+  lastFrameTime: performance.now(),
+  fpsHistory: [],
+  lastBirdTime: 0,
+};
+
+// ---------- Yardımcılar ----------
+const clamp  = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp   = (a, b, t) => a + (b - a) * t;
+const rand   = (a, b) => a + Math.random() * (b - a);
+const dist   = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
 
 function resize() {
-  webcamCanvas.width = window.innerWidth;
-  webcamCanvas.height = window.innerHeight;
-  sceneCanvas.width = window.innerWidth;
-  sceneCanvas.height = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = window.innerWidth, h = window.innerHeight;
+  [webcamCanvas, sceneCanvas].forEach(c => {
+    c.width = w * dpr; c.height = h * dpr;
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+  });
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  webcamCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  initParticles();
 }
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', resize, { passive: true });
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
-// --- SES MOTORU ---
-let audioCtx = null;
-function initAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+// ---------- Parçacık sistemi ----------
+function initParticles() {
+  state.particles.length = 0;
+  state.butterflies.length = 0;
+  state.fireflies.length = 0;
+  state.leaves.length = 0;
+
+  const w = window.innerWidth, h = window.innerHeight;
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    state.particles.push({
+      x: Math.random() * w, y: Math.random() * h,
+      vx: rand(-0.2, 0.2), vy: rand(-0.2, 0.2),
+      size: rand(1, 3.5), phase: Math.random() * Math.PI * 2,
+      hue: rand(100, 150),
+    });
+  }
+  for (let i = 0; i < (IS_MOBILE ? 4 : 8); i++) {
+    state.butterflies.push({
+      angle: Math.random() * Math.PI * 2,
+      radius: rand(120, 300),
+      speed: rand(0.008, 0.02),
+      hue: rand(30, 60),
+      size: rand(6, 11),
+      offset: Math.random() * Math.PI * 2,
+    });
+  }
+  for (let i = 0; i < (IS_MOBILE ? 8 : 20); i++) {
+    state.fireflies.push({
+      x: Math.random() * w, y: Math.random() * h,
+      vx: rand(-0.15, 0.15), vy: rand(-0.15, 0.15),
+      phase: Math.random() * Math.PI * 2,
+      size: rand(2, 4),
+    });
+  }
 }
-function playBirdSound() {
-  initAudio();
-  if (!audioCtx) return;
-  const now = audioCtx.currentTime;
-  for(let i=0; i<3; i++) {
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
+
+// ---------- SES MOTORU (prosedürel, dosya yok) ----------
+const audio = {
+  ctx: null,
+  master: null,
+  windGain: null,
+  waterGain: null,
+  ready: false,
+  muted: false,
+};
+
+function initAudio() {
+  if (audio.ready) {
+    if (audio.ctx.state === 'suspended') audio.ctx.resume();
+    return;
+  }
+  try {
+    audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.35;
+    audio.master.connect(audio.ctx.destination);
+
+    // Rüzgar: filtrelenmiş gürültü
+    const bufSize = audio.ctx.sampleRate * 2;
+    const noiseBuf = audio.ctx.createBuffer(1, bufSize, audio.ctx.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audio.ctx.createBufferSource();
+    noise.buffer = noiseBuf; noise.loop = true;
+    const windFilter = audio.ctx.createBiquadFilter();
+    windFilter.type = 'lowpass'; windFilter.frequency.value = 500; windFilter.Q.value = 0.5;
+    audio.windGain = audio.ctx.createGain();
+    audio.windGain.gain.value = 0.06;
+    noise.connect(windFilter).connect(audio.windGain).connect(audio.master);
+    noise.start();
+
+    // Su: bandpass gürültü
+    const noise2 = audio.ctx.createBufferSource();
+    noise2.buffer = noiseBuf; noise2.loop = true;
+    const waterFilter = audio.ctx.createBiquadFilter();
+    waterFilter.type = 'bandpass'; waterFilter.frequency.value = 1200; waterFilter.Q.value = 2;
+    audio.waterGain = audio.ctx.createGain();
+    audio.waterGain.gain.value = 0.0;
+    noise2.connect(waterFilter).connect(audio.waterGain).connect(audio.master);
+    noise2.start();
+
+    audio.ready = true;
+  } catch (e) {
+    console.warn('Ses motoru başlatılamadı:', e);
+  }
+}
+
+function playBird() {
+  if (!audio.ready || audio.muted) return;
+  const now = audio.ctx.currentTime;
+  const notes = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < notes; i++) {
+    const o = audio.ctx.createOscillator();
+    const g = audio.ctx.createGain();
+    o.connect(g).connect(audio.master);
     o.type = 'sine';
-    const start = now + i * 0.1;
-    o.frequency.setValueAtTime(2500 + Math.random()*1000, start);
-    o.frequency.exponentialRampToValueAtTime(3000 + Math.random()*1000, start + 0.05);
-    o.frequency.exponentialRampToValueAtTime(2000, start + 0.1);
+    const start = now + i * rand(0.08, 0.15);
+    const f0 = rand(2000, 3200);
+    o.frequency.setValueAtTime(f0, start);
+    o.frequency.exponentialRampToValueAtTime(f0 * rand(1.2, 1.6), start + 0.04);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.7, start + 0.12);
     g.gain.setValueAtTime(0, start);
-    g.gain.linearRampToValueAtTime(0.03, start + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
+    g.gain.linearRampToValueAtTime(0.05, start + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
     o.start(start); o.stop(start + 0.2);
   }
 }
 
-// --- YAPAY ZEKA (MediaPipe) ---
-const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-faceMesh.onResults(onResults);
+function playChime() {
+  if (!audio.ready || audio.muted) return;
+  const now = audio.ctx.currentTime;
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+    const o = audio.ctx.createOscillator();
+    const g = audio.ctx.createGain();
+    o.connect(g).connect(audio.master);
+    o.type = 'triangle';
+    o.frequency.value = freq;
+    const start = now + i * 0.06;
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(0.04, start + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + 0.8);
+    o.start(start); o.stop(start + 0.9);
+  });
+}
 
+function updateAmbient(isHappy) {
+  if (!audio.ready) return;
+  const t = audio.ctx.currentTime;
+  audio.windGain.gain.linearRampToValueAtTime(isHappy ? 0.09 : 0.05, t + 0.5);
+  audio.waterGain.gain.linearRampToValueAtTime(isHappy ? 0.03 : 0.0, t + 0.8);
+}
+
+// ---------- KAMERA ----------
 async function initCamera() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
+    });
     video.srcObject = stream;
-    video.onloadedmetadata = () => {
-      video.play();
-      cameraStarted = true;
-      processVideo();
-    };
+    await new Promise(r => { video.onloadedmetadata = r; });
+    await video.play();
+    state.cameraStarted = true;
+    if (!state.modelReady) loaderMsg.textContent = 'Yapay zekâ modeli hazırlanıyor…';
   } catch (err) {
-    statusText.innerText = "Kamera izni gerekli!";
-    statusText.style.color = "#ef4444";
+    console.warn('Kamera başlatılamadı:', err);
+    state.demoMode = true;
+    demoNotice.classList.add('show');
+    statusEl.textContent = 'Demo modu — fare ile yüzü hareket ettir';
+    statusEl.style.color = 'var(--gold)';
   }
 }
-async function processVideo() {
-  if (!cameraStarted) return;
-  await faceMesh.send({image: video});
-  requestAnimationFrame(processVideo);
-}
-setTimeout(initCamera, 500);
 
+// ---------- MEDIAPIPE FACE MESH ----------
+let faceMesh = null;
+function initFaceMesh() {
+  if (typeof FaceMesh === 'undefined') {
+    loaderMsg.textContent = 'Model yüklenemedi — demo modu aktif';
+    state.demoMode = true;
+    demoNotice.classList.add('show');
+    setTimeout(hideLoader, 800);
+    return;
+  }
+  try {
+    faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+    faceMesh.onResults(onResults);
+    state.modelReady = true;
+    loaderMsg.textContent = 'Kamera bekleniyor…';
+  } catch (e) {
+    console.warn('FaceMesh init hatası:', e);
+    state.demoMode = true;
+    demoNotice.classList.add('show');
+    setTimeout(hideLoader, 800);
+  }
+}
+
+let processing = false;
+async function processVideo() {
+  if (!state.cameraStarted || !faceMesh || processing) return;
+  processing = true;
+  try {
+    await faceMesh.send({ image: video });
+  } catch (e) {
+    // Sessiz geç — bazen frame atlanabilir
+  }
+  processing = false;
+  if (state.cameraStarted) requestAnimationFrame(processVideo);
+}
+
+// ---------- SONUÇ İŞLEME ----------
 function onResults(results) {
-  time += 0.03;
-  
-  // Kamera arka planı
-  if(cameraStarted) {
+  state.time += REDUCED_MOTION ? 0.01 : 0.025;
+
+  if (state.cameraStarted) {
     webcamCtx.save();
     webcamCtx.translate(webcamCanvas.width, 0);
     webcamCtx.scale(-1, 1);
@@ -120,109 +467,206 @@ function onResults(results) {
     webcamCtx.restore();
   }
 
-  ctx.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
-
   if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
     const lm = results.multiFaceLandmarks[0];
-    faceData.detected = true;
-    faceData.landmarks = lm;
-    
-    // Yüzün merkezi (Burun)
+    state.faceDetected = true;
+    state.faceLandmarks = lm;
+
+    // Ayna düzeltmesi — TÜM hesaplarda kullanılır
+    const W = window.innerWidth, H = window.innerHeight;
+    const mx = (p) => (1 - p.x) * W;
+    const my = (p) => p.y * H;
+
+    // Yüz merkezi = burun ucu (1)
     const nose = lm[1];
-    faceData.x = (1 - nose.x) * sceneCanvas.width;
-    faceData.y = nose.y * sceneCanvas.height;
-    
+    state.faceCenter = { x: mx(nose), y: my(nose) };
+
+    // Yüz boyutu = göz arası mesafe
+    const eyeL = lm[33], eyeR = lm[263];
+    state.faceSize = dist(mx(eyeL), my(eyeL), mx(eyeR), my(eyeR));
+
     // Gülümseme oranı
-    const leftMouth = lm[61], rightMouth = lm[291];
-    const topLip = lm[13], bottomLip = lm[14];
-    const w = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
-    const h = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
-    faceData.smile = w / h;
-    
-    const isHappy = faceData.smile > 3.5;
-    statusText.innerText = isHappy ? "🌿 EKOBİLİNÇ CANLANIYOR!" : "DİJİTAL DOĞAYI BESLE";
-    statusText.style.color = isHappy ? "#4ade80" : "#fbbf24";
+    const mL = lm[61], mR = lm[291], tLip = lm[13], bLip = lm[14];
+    const mw = dist(mx(mL), my(mL), mx(mR), my(mR));
+    const mh = Math.max(1, dist(mx(tLip), my(tLip), mx(bLip), my(bLip)));
+    state.smileRatio = mw / mh;
+    state.isHappy = state.smileRatio > 3.2;
 
-    // SES: Gülümsediğinde kuş sesi
-    if (isHappy && Math.random() > 0.9) {
-      playBirdSound();
+    // Stabilite: merkez hareketinin tersi
+    if (state.prevCenter) {
+      const d = dist(state.faceCenter.x, state.faceCenter.y, state.prevCenter.x, state.prevCenter.y);
+      const inst = clamp(1 - d / 40, 0, 1);
+      state.stability = lerp(state.stability, inst, 0.1);
     }
+    state.prevCenter = { ...state.faceCenter };
 
-    // --- "EKOBİLİNÇ AĞACI" ÇİZİMİ ---
-    
-    // Yüzün etrafına, yüz hatlarına uyumlu dallar ve yapraklar çiz
-    
-    ctx.save();
-    // Yüz merkezini referans al
-    ctx.translate(faceData.x, faceData.y);
-    
-    // Gülümseme arttıkça ağaç büyür ve parlar
-    const treeScale = isHappy ? 1.5 : 1.0;
-    ctx.scale(treeScale, treeScale);
-
-    // 1. Dijital Gövde (Burun ve alın hattından yükselen)
-    ctx.beginPath();
-    ctx.moveTo(0, 80); // Çene altı
-    ctx.quadraticCurveTo(20, 0, 0, -120); // Alına doğru
-    ctx.quadraticCurveTo(-20, 0, 0, 80);
-    ctx.strokeStyle = isHappy ? '#4ade80' : '#15803d';
-    ctx.lineWidth = 4;
-    ctx.shadowBlur = isHappy ? 20 : 0;
-    ctx.shadowColor = '#4ade80';
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // 2. Yüz Hatlarından Çıkan Dallar (Yüzün şekline göre)
-    // Kaşlar (33, 263)
-    const leftEyebrow = lm[33];
-    const rightEyebrow = lm[263];
-    
-    ctx.beginPath();
-    ctx.moveTo(0, -100);
-    ctx.quadraticCurveTo((1-leftEyebrow.x)*sceneCanvas.width - faceData.x, (leftEyebrow.y)*sceneCanvas.height - faceData.y, -100, -150);
-    ctx.quadraticCurveTo((1-rightEyebrow.x)*sceneCanvas.width - faceData.x, (rightEyebrow.y)*sceneCanvas.height - faceData.y, 100, -150);
-    ctx.strokeStyle = isHappy ? '#22c55e' : '#166534';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // 3. Gözlerden Çıkan Işıklar (Göz çevresi 159, 386)
-    const leftEye = lm[159];
-    const rightEye = lm[386];
-    
-    if (isHappy) {
-      // Işıklar saç
-      ctx.beginPath();
-      ctx.arc((1-leftEye.x)*sceneCanvas.width - faceData.x, (leftEye.y)*sceneCanvas.height - faceData.y, 30 + Math.sin(time*5)*10, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(74, 222, 128, 0.4)';
-      ctx.fill();
-      
-      ctx.beginPath();
-      ctx.arc((1-rightEye.x)*sceneCanvas.width - faceData.x, (rightEye.y)*sceneCanvas.height - faceData.y, 30 + Math.cos(time*5)*10, 0, Math.PI*2);
-      ctx.fill();
+    // Gülümseme süresi + ses
+    if (state.isHappy) {
+      state.smileAccum += 1 / 60;
+      const now = performance.now();
+      if (now - state.lastBirdTime > 3500) {
+        playBird();
+        state.lastBirdTime = now;
+      }
     }
-
-    // 4. Yüzün Etrafında Uçuşan Kelebekler / Yapraklar
-    const numParticles = isHappy ? 30 : 10;
-    for(let i=0; i<numParticles; i++) {
-      const angle = time + (i * Math.PI * 2 / numParticles);
-      const rad = 150 + Math.sin(time*2 + i)*50;
-      const px = Math.cos(angle) * rad;
-      const py = Math.sin(angle) * rad;
-      
-      ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI*2);
-      ctx.fillStyle = isHappy ? (i%2===0 ? '#fbbf24' : '#4ade80') : '#475569';
-      ctx.fill();
-    }
-    
-    ctx.restore();
-
+    updateAmbient(state.isHappy);
   } else {
-    faceData.detected = false;
-    statusText.innerText = "Lütfen kameraya bakın...";
-    statusText.style.color = "#fff";
+    state.faceDetected = false;
+  }
+
+  updateHUD();
+  render();
+}
+
+// ---------- DEMO MODU ----------
+function setupDemoMode() {
+  const update = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    state.mouse.x = t.clientX / window.innerWidth;
+    state.mouse.y = t.clientY / window.innerHeight;
+    state.mouse.active = true;
+
+    const W = window.innerWidth, H = window.innerHeight;
+    state.faceCenter = { x: state.mouse.x * W, y: state.mouse.y * H };
+    state.faceSize = Math.min(W, H) * 0.28;
+    state.smileRatio = 3.6; // demo modunda hep gülümsüyor say
+    state.isHappy = true;
+    state.faceDetected = true;
+    state.stability = 0.95;
+    state.smileAccum += 1 / 60;
+  };
+  window.addEventListener('mousemove', update, { passive: true });
+  window.addEventListener('touchmove', update, { passive: true });
+}
+
+// ---------- HUD GÜNCELLEME ----------
+let hudTick = 0;
+function updateHUD() {
+  // FPS
+  const now = performance.now();
+  const dt = now - state.lastFrameTime;
+  state.lastFrameTime = now;
+  const fps = 1000 / dt;
+  state.fpsHistory.push(fps);
+  if (state.fpsHistory.length > 30) state.fpsHistory.shift();
+  const avgFps = state.fpsHistory.reduce((a, b) => a + b, 0) / state.fpsHistory.length;
+
+  // Ekobilinç skoru
+  const smileScore  = clamp(state.smileAccum * 4, 0, 60);
+  const stabScore   = state.stability * 25;
+  const detectScore = state.faceDetected ? 15 : 0;
+  state.ecoScore = Math.round(clamp(smileScore + stabScore + detectScore, 0, 100));
+
+  // Her 6 frame'de bir UI güncelle (performans)
+  hudTick++;
+  if (hudTick % 6 !== 0) return;
+
+  if (state.faceDetected) {
+    if (state.isHappy) {
+      statusEl.textContent = '🌿 EKOBİLİNÇ CANLANIYOR!';
+      statusEl.classList.add('happy');
+    } else {
+      statusEl.textContent = 'DİJİTAL DOĞAYI BESLE';
+      statusEl.classList.remove('happy');
+    }
+  } else {
+    statusEl.textContent = state.demoMode ? 'Demo: Fare ile gez' : 'Lütfen kameraya bakın…';
+    statusEl.classList.remove('happy');
+  }
+
+  ecoBarFill.style.width = state.ecoScore + '%';
+  mFps.textContent   = avgFps.toFixed(0);
+  mSmile.textContent = state.smileAccum.toFixed(1) + 's';
+  mScore.textContent = state.ecoScore;
+  mStab.textContent  = (state.stability * 100).toFixed(0) + '%';
+}
+
+// ---------- ANA ÇİZİM ----------
+function render() {
+  const W = window.innerWidth, H = window.innerHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  // Arka plan gradyanı (hafif)
+  if (!state.faceDetected) {
+    // Boşta: nefes alan aura
+    const pulse = 0.5 + Math.sin(state.time * 1.2) * 0.3;
+    const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W,H) * 0.5);
+    grad.addColorStop(0, `rgba(74, 222, 128, ${0.05 * pulse})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  drawAmbientParticles();
+  drawFireflies();
+
+  if (state.faceDetected && state.faceLandmarks) {
+    drawEcoTree(state.faceLandmarks, state.isHappy);
+    drawEyesGlow(state.faceLandmarks, state.isHappy);
+    drawButterflies(state.faceCenter, state.isHappy);
+    drawAura(state.faceCenter, state.faceSize, state.isHappy);
   }
 }
-</script>
-</body>
-</html>
+
+// ---------- AĞAÇ ÇİZİMİ (yüz hatlarından) ----------
+function drawEcoTree(lm, isHappy) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const mx = (p) => (1 - p.x) * W;
+  const my = (p) => p.y * H;
+
+  const forehead = lm[10], chin = lm[152];
+  const faceH = dist(mx(forehead), my(forehead), mx(chin), my(chin));
+  const cx = state.faceCenter.x;
+  const cy = state.faceCenter.y;
+
+  const scale = isHappy ? 1.35 : 1.0;
+  const green = isHappy ? '#4ade80' : '#15803d';
+  const greenDeep = isHappy ? '#22c55e' : '#166534';
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+
+  // === GÖVDE: çene → alın ===
+  const sway = Math.sin(state.time * 1.5) * 8;
+  const trunkLen = faceH * 0.65;
+  ctx.beginPath();
+  ctx.moveTo(0, faceH * 0.35);
+  ctx.bezierCurveTo(
+    sway * 0.4, faceH * 0.1,
+    -sway * 0.6, -trunkLen * 0.5,
+    sway, -trunkLen
+  );
+  ctx.strokeStyle = green;
+  ctx.lineWidth = isHappy ? 5 : 3.5;
+  ctx.lineCap = 'round';
+  if (isHappy) { ctx.shadowBlur = 25; ctx.shadowColor = '#4ade80'; }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // === DALLAR: yüz landmark'larından ===
+  const branches = [
+    { a: lm[33],  b: lm[46],  leaf: true },   // sol kaş dış
+    { a: lm[263], b: lm[276], leaf: true },   // sağ kaş dış
+    { a: lm[70],  b: lm[63],  leaf: true },   // sol elmacık
+    { a: lm[300], b: lm[293], leaf: true },   // sağ elmacık
+    { a: lm[172], b: lm[136], leaf: false },  // sol çene
+    { a: lm[397], b: lm[365], leaf: false },  // sağ çene
+    { a: lm[105], b: lm[66],  leaf: true },   // sol alın
+    { a: lm[334], b: lm[296], leaf: true },   // sağ alın
+  ];
+
+  branches.forEach(({ a, b, leaf }, i) => {
+    const ax = mx(a) - cx, ay = my(a) - cy;
+    const bx = mx(b) - cx, by = my(b) - cy;
+    const dx = bx - ax, dy = by - ay;
+    const len = isHappy ? 1.7 : 1.2;
+    const ex = ax + dx * len, ey = ay + dy * len;
+
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(
+      (ax + bx) / 2, (ay + by) / 2 - 15,
+      ex, ey
+    );
+    ctx.strokeStyle = green
