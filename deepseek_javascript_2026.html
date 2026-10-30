@@ -1,61 +1,236 @@
-javascript:(async function(){
-  document.body.innerHTML=''; document.body.style.margin='0'; document.body.style.overflow='hidden'; document.body.style.background='%23000';
-  const v=document.createElement('video'); v.style.display='none'; v.autoplay=true; v.playsInline=true;
-  const c=document.createElement('canvas'); c.style.position='absolute'; c.style.top='0'; c.style.left='0'; c.style.width='100%'; c.style.height='100%'; c.style.objectFit='cover'; c.style.transform='scaleX(-1)';
-  document.body.appendChild(v); document.body.appendChild(c);
-  const ctx=c.getContext('2d');
-  function rz(){c.width=window.innerWidth; c.height=window.innerHeight;} window.addEventListener('resize',rz); rz();
-  const status=document.createElement('div'); status.style.position='absolute'; status.style.bottom='30px'; status.style.left='50%'; status.style.transform='translateX(-50%)'; status.style.fontSize='2.5rem'; status.style.fontWeight='bold'; status.style.textShadow='0 0 20px %23000'; status.style.color='%23fff'; status.style.zIndex='10'; status.innerText='Yapay Zeka Yükleniyor...'; document.body.appendChild(status);
-  const inst=document.createElement('div'); inst.style.position='absolute'; inst.style.top='20px'; inst.style.right='20px'; inst.style.background='rgba(0,0,0,0.7)'; inst.style.padding='10px 20px'; inst.style.borderRadius='8px'; inst.style.fontSize='0.8rem'; inst.style.color='%23fbbf24'; inst.style.border='1px solid %23fbbf24'; inst.style.zIndex='10'; inst.innerHTML='GİRESUN BULANCAK<br>BİLİM VE SANAT MERKEZİ'; document.body.appendChild(inst);
-  
-  async function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>EKOSFER: Duygu Aynası</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
+  #container { position: relative; width: 100vw; height: 100vh; }
+  video { display: none; }
+  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 12px; border: 2px solid #4ade80; pointer-events: none; z-index: 10; }
+  h1 { margin: 0; font-size: 1.5rem; color: #4ade80; }
+  p { margin: 5px 0 0 0; font-size: 0.9rem; color: #ccc; }
+  #status { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000, 0 0 10px #000; transition: 0.3s; z-index: 10; text-align: center; width: 100%; }
+  #inst { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; font-size: 0.8rem; color: #fbbf24; border: 1px solid #fbbf24; z-index: 10; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div id="ui">
+    <h1>EKOSFER: Duygu Aynası</h1>
+    <p>Gülümse, doğayı yeşert! | Üzülme, doğa kararır...</p>
+  </div>
+  <div id="inst">GİRESUN BULANCAK<br>BİLİM VE SANAT MERKEZİ</div>
+  <div id="status">Kamera Bekleniyor...</div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusText = document.getElementById('status');
+
+let isSmiling = false;
+let faceLandmarks = null;
+let particles = [];
+let cameraStarted = false;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const faceMesh = new FaceMesh({locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+}});
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play();
+      cameraStarted = true;
+      processVideo();
+    };
+  } catch (err) {
+    statusText.innerText = "Kamera izni verilmedi!";
+    statusText.style.color = "#ef4444";
+  }
+}
+
+async function processVideo() {
+  if (!cameraStarted) return;
+  await faceMesh.send({image: video});
+  requestAnimationFrame(processVideo);
+}
+
+setTimeout(initCamera, 1000);
+
+function onResults(results) {
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    faceLandmarks = results.multiFaceLandmarks[0];
+    
+    const leftMouth = faceLandmarks[61];
+    const rightMouth = faceLandmarks[291];
+    const topLip = faceLandmarks[13];
+    const bottomLip = faceLandmarks[14];
+
+    const mouthWidth = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
+    const mouthHeight = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
+    
+    const smileRatio = mouthWidth / mouthHeight;
+
+    if (smileRatio > 3.5) {
+      if (!isSmiling) {
+        isSmiling = true;
+        statusText.innerText = "🌿 DOĞA CANLANIYOR!";
+        statusText.style.color = "#4ade80";
+        for(let i=0; i<30; i++) createParticle(true);
+        playSound('good');
+      }
+    } else {
+      if (isSmiling) {
+        isSmiling = false;
+        statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
+        statusText.style.color = "#ef4444";
+        for(let i=0; i<20; i++) createParticle(false);
+        playSound('bad');
+      }
+    }
+    drawAura();
+  } else {
+    statusText.innerText = "Yüz Algılanamadı...";
+    statusText.style.color = "#fff";
+    isSmiling = false;
   }
 
-  try {
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js');
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
-    status.innerText = 'Kamera Bekleniyor...';
-    
-    let isSmiling=false, parts=[];
-    const fm = new FaceMesh({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
-    fm.setOptions({maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.5, minTrackingConfidence:0.5});
-    
-    fm.onResults((r) => {
-      ctx.save(); ctx.clearRect(0,0,c.width,c.height);
-      if(r.multiFaceLandmarks && r.multiFaceLandmarks.length > 0) {
-        const l=r.multiFaceLandmarks[0][61], rt=r.multiFaceLandmarks[0][291], t=r.multiFaceLandmarks[0][13], b=r.multiFaceLandmarks[0][14];
-        const w=Math.hypot(l.x-rt.x, l.y-rt.y); const h=Math.hypot(t.x-b.x, t.y-b.y);
-        const sr=w/h;
-        if(sr>3.5) {
-          if(!isSmiling){ isSmiling=true; status.innerText='🌿 DOĞA CANLANIYOR!'; status.style.color='%234ade80'; for(let i=0;i<30;i++)mk(true); snd('good'); }
-        } else {
-          if(isSmiling){ isSmiling=false; status.innerText='🌫️ KİRLİLİK ARTIYOR...'; status.style.color='%23ef4444'; for(let i=0;i<20;i++)mk(false); snd('bad'); }
-        }
-        const n=r.multiFaceLandmarks[0][1]; const x=(1-n.x)*c.width; const y=n.y*c.height; const rad=150+Math.sin(Date.now()*0.005)*20;
-        ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.strokeStyle=isSmiling?'rgba(74,222,128,0.6)':'rgba(239,68,68,0.6)'; ctx.lineWidth=8; ctx.stroke();
-        ctx.shadowBlur=20; ctx.shadowColor=isSmiling?'%234ade80':'%23ef4444'; ctx.stroke(); ctx.shadowBlur=0;
-      } else { status.innerText='Yüz Algılanamadı...'; status.style.color='%23fff'; isSmiling=false; }
-      dr(); ctx.restore();
-    });
-    
-    const cam = new Camera(v, {onFrame: async () => { await fm.send({image:v}); }, width:1280, height:720});
-    cam.start();
-    
-    function mk(g){ parts.push({x:Math.random()*c.width, y:c.height+20, vx:(Math.random()-0.5)*4, vy:-Math.random()*5-2, s:Math.random()*15+10, ml:100+Math.random()*100, g:g, r:Math.random()*Math.PI*2, rs:(Math.random()-0.5)*0.1}); }
-    function dr(){ for(let i=parts.length-1;i>=0;i--){ let p=parts[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.02; p.r+=p.rs; p.ml--; if(p.ml<=0){parts.splice(i,1); continue;} ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.globalAlpha=Math.min(1,p.ml/100); if(p.g){ ctx.fillStyle='%2322c55e'; ctx.beginPath(); ctx.ellipse(0,0,p.s,p.s/2,0,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='%23166534'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-p.s,0); ctx.lineTo(p.s,0); ctx.stroke(); } else { ctx.fillStyle='rgba(75,85,99,0.7)'; ctx.beginPath(); ctx.arc(0,0,p.s,0,Math.PI*2); ctx.fill(); } ctx.restore(); } }
-    
-    let ac=null;
-    function snd(t){ if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)(); if(ac.state==='suspended')ac.resume(); const n=ac.currentTime; if(t==='good'){ [800,1000,1200,1500].forEach((f,i)=>{ const o=ac.createOscillator(),g=ac.createGain(); o.connect(g); g.connect(ac.destination); o.type='sine'; o.frequency.value=f; g.gain.setValueAtTime(0,n+i*0.05); g.gain.linearRampToValueAtTime(0.05,n+i*0.05+0.02); g.gain.exponentialRampToValueAtTime(0.01,n+i*0.05+0.15); o.start(n+i*0.05); o.stop(n+i*0.05+0.2); }); } else { const o=ac.createOscillator(),g=ac.createGain(); o.connect(g); g.connect(ac.destination); o.type='sawtooth'; o.frequency.setValueAtTime(200,n); o.frequency.exponentialRampToValueAtTime(100,n+0.3); g.gain.setValueAtTime(0.05,n); g.gain.exponentialRampToValueAtTime(0.01,n+0.35); o.start(n); o.stop(n+0.4); } }
-    
-  } catch(e) {
-    status.innerText = 'Kütüphane yüklenemedi! İnterneti kontrol et.';
-    status.style.color = '%23ef4444';
+  drawParticles();
+  ctx.restore();
+}
+
+function drawAura() {
+  if (!faceLandmarks) return;
+  const nose = faceLandmarks[1];
+  const x = (1 - nose.x) * canvas.width;
+  const y = nose.y * canvas.height;
+  const radius = 150 + Math.sin(Date.now() * 0.005) * 20;
+
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = isSmiling ? 'rgba(74, 222, 128, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = isSmiling ? '#4ade80' : '#ef4444';
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function createParticle(isGreen) {
+  const x = Math.random() * canvas.width;
+  const y = canvas.height + 20;
+  particles.push({
+    x: x, y: y,
+    vx: (Math.random() - 0.5) * 4,
+    vy: -Math.random() * 5 - 2,
+    size: Math.random() * 15 + 10,
+    maxLife: 100 + Math.random() * 100,
+    isGreen: isGreen,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() - 0.5) * 0.1
+  });
+}
+
+function drawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.02;
+    p.rot += p.rotSpeed;
+    p.maxLife--;
+
+    if (p.maxLife <= 0) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.globalAlpha = Math.min(1, p.maxLife / 100);
+
+    if (p.isGreen) {
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#166534';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)';
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
-})();
+}
+
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSound(type) {
+  initAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  
+  if (type === 'good') {
+    [800, 1000, 1200, 1500].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, now + i*0.05);
+      g.gain.linearRampToValueAtTime(0.05, now + i*0.05 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.01, now + i*0.05 + 0.15);
+      o.start(now + i*0.05); o.stop(now + i*0.05 + 0.2);
+    });
+  } else {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
+    o.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+    g.gain.setValueAtTime(0.05, now);
+    g.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    o.start(now); o.stop(now + 0.4);
+  }
+}
+</script>
+</body>
+</html>
