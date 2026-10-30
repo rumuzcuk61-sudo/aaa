@@ -7,20 +7,27 @@
   body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
   #container { position: relative; width: 100vw; height: 100vh; }
   video { display: none; }
-  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 2;}
   #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 12px; border: 2px solid #4ade80; pointer-events: none; z-index: 10; }
   h1 { margin: 0; font-size: 1.5rem; color: #4ade80; }
   p { margin: 5px 0 0 0; font-size: 0.9rem; color: #ccc; }
   #status { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000, 0 0 10px #000; transition: 0.3s; z-index: 10; text-align: center; width: 100%; }
   #inst { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; font-size: 0.8rem; color: #fbbf24; border: 1px solid #fbbf24; z-index: 10; }
+  
+  /* Arka plan dünyası için */
+  #world { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; transition: background 1s; }
+  .tree { position: absolute; bottom: 0; transition: filter 1s, opacity 1s; }
+  .cloud { position: absolute; background: rgba(255,255,255,0.8); border-radius: 50%; transition: background 1s; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
 <div id="container">
+  <div id="world"></div>
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
+  
   <div id="ui">
     <h1>EKOSFER: Duygu Aynası</h1>
     <p>Gülümse, doğayı yeşert! | Üzülme, doğa kararır...</p>
@@ -34,12 +41,121 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const statusText = document.getElementById('status');
+const world = document.getElementById('world');
 
 let isSmiling = false;
 let faceLandmarks = null;
 let particles = [];
 let cameraStarted = false;
+let animationFrameId;
 
+// --- ARKA PLAN DÜNYASI OLUŞTURMA ---
+function createWorld() {
+  world.innerHTML = '';
+  
+  // Gökyüzü
+  world.style.background = 'linear-gradient(to bottom, #0a0f0a, #000)'; // Başlangıçta karanlık
+  
+  // Güneş
+  const sun = document.createElement('div');
+  sun.style.cssText = 'position:absolute; top:100px; right:15%; width:100px; height:100px; background:#fff59d; border-radius:50%; box-shadow:0 0 50px #fbbf24; transition: all 1s;';
+  sun.id = 'sun';
+  world.appendChild(sun);
+
+  // Bulutlar
+  for (let i = 0; i < 5; i++) {
+    const cloud = document.createElement('div');
+    cloud.className = 'cloud';
+    cloud.style.width = (80 + Math.random()*80) + 'px';
+    cloud.style.height = (40 + Math.random()*40) + 'px';
+    cloud.style.top = (50 + Math.random()*150) + 'px';
+    cloud.style.left = (Math.random()*80) + '%';
+    world.appendChild(cloud);
+  }
+
+  // Ağaçlar (Ön plan)
+  for (let i = 0; i < 8; i++) {
+    const tree = document.createElement('div');
+    tree.className = 'tree';
+    tree.style.left = (i * 15 + Math.random()*5) + '%';
+    tree.style.width = '100px';
+    tree.style.height = '200px';
+    
+    // Gövde
+    const trunk = document.createElement('div');
+    trunk.style.cssText = 'position:absolute; bottom:0; left:40px; width:20px; height:100px; background:#451a03;';
+    tree.appendChild(trunk);
+    
+    // Yapraklar (Başlangıçta solmuş)
+    const leaves = document.createElement('div');
+    leaves.style.cssText = 'position:absolute; bottom:80px; left:0; width:100px; height:100px; background:#3f3f46; border-radius:50% 50% 40% 40%; transition: background 1s, box-shadow 1s;';
+    leaves.className = 'leaves';
+    tree.appendChild(leaves);
+    
+    world.appendChild(tree);
+  }
+}
+
+// --- SES MOTORU ---
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playSound(type) {
+  initAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  if (type === 'good') {
+    [800, 1000, 1200, 1500].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, now + i*0.05);
+      g.gain.linearRampToValueAtTime(0.05, now + i*0.05 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.01, now + i*0.05 + 0.15);
+      o.start(now + i*0.05); o.stop(now + i*0.05 + 0.2);
+    });
+  } else {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
+    o.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+    g.gain.setValueAtTime(0.05, now);
+    g.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    o.start(now); o.stop(now + 0.4);
+  }
+}
+
+// --- VADİYİ GÜNCELLE ---
+function updateWorld(smileState) {
+  const sun = document.getElementById('sun');
+  const trees = document.querySelectorAll('.tree');
+  const leaves = document.querySelectorAll('.leaves');
+  const clouds = document.querySelectorAll('.cloud');
+
+  if (smileState) {
+    // MUTLU DÜNYA
+    world.style.background = 'linear-gradient(to bottom, #38bdf8, #bae6fd)';
+    if(sun) { sun.style.opacity = '1'; sun.style.transform = 'scale(1)'; }
+    leaves.forEach(l => {
+      l.style.background = '#22c55e';
+      l.style.boxShadow = '0 0 20px #4ade80';
+    });
+    clouds.forEach(c => c.style.background = 'rgba(255,255,255,0.9)');
+  } else {
+    // ÜZGÜN DÜNYA
+    world.style.background = 'linear-gradient(to bottom, #1e1e24, #000)';
+    if(sun) { sun.style.opacity = '0.3'; sun.style.transform = 'scale(0.8)'; }
+    leaves.forEach(l => {
+      l.style.background = '#3f3f46';
+      l.style.boxShadow = 'none';
+    });
+    clouds.forEach(c => c.style.background = 'rgba(75,85,99,0.8)');
+  }
+}
+
+// --- KAMERA VE YAPAY ZEKA ---
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -47,17 +163,8 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-const faceMesh = new FaceMesh({locateFile: (file) => {
-  return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-}});
-
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
-
+const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
 faceMesh.onResults(onResults);
 
 async function initCamera() {
@@ -78,10 +185,11 @@ async function initCamera() {
 async function processVideo() {
   if (!cameraStarted) return;
   await faceMesh.send({image: video});
-  requestAnimationFrame(processVideo);
+  animationFrameId = requestAnimationFrame(processVideo);
 }
 
-setTimeout(initCamera, 1000);
+setTimeout(initCamera, 500);
+createWorld();
 
 function onResults(results) {
   ctx.save();
@@ -97,15 +205,16 @@ function onResults(results) {
 
     const mouthWidth = Math.hypot(leftMouth.x - rightMouth.x, leftMouth.y - rightMouth.y);
     const mouthHeight = Math.hypot(topLip.x - bottomLip.x, topLip.y - bottomLip.y);
-    
     const smileRatio = mouthWidth / mouthHeight;
 
+    // Gülümseme Algılandıysa
     if (smileRatio > 3.5) {
       if (!isSmiling) {
         isSmiling = true;
         statusText.innerText = "🌿 DOĞA CANLANIYOR!";
         statusText.style.color = "#4ade80";
-        for(let i=0; i<30; i++) createParticle(true);
+        updateWorld(true); // Dünyayı yeşert
+        for(let i=0; i<40; i++) createParticle(true);
         playSound('good');
       }
     } else {
@@ -113,7 +222,8 @@ function onResults(results) {
         isSmiling = false;
         statusText.innerText = "🌫️ KİRLİLİK ARTIYOR...";
         statusText.style.color = "#ef4444";
-        for(let i=0; i<20; i++) createParticle(false);
+        updateWorld(false); // Dünyayı karart
+        for(let i=0; i<30; i++) createParticle(false);
         playSound('bad');
       }
     }
@@ -121,7 +231,10 @@ function onResults(results) {
   } else {
     statusText.innerText = "Yüz Algılanamadı...";
     statusText.style.color = "#fff";
-    isSmiling = false;
+    if (isSmiling) {
+       isSmiling = false;
+       updateWorld(false);
+    }
   }
 
   drawParticles();
@@ -164,71 +277,17 @@ function createParticle(isGreen) {
 function drawParticles() {
   for (let i = particles.length - 1; i >= 0; i--) {
     let p = particles[i];
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.02;
-    p.rot += p.rotSpeed;
-    p.maxLife--;
-
-    if (p.maxLife <= 0) {
-      particles.splice(i, 1);
-      continue;
-    }
-
+    p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.rot += p.rotSpeed; p.maxLife--;
+    if (p.maxLife <= 0) { particles.splice(i, 1); continue; }
     ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(p.rot);
-    ctx.globalAlpha = Math.min(1, p.maxLife / 100);
-
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.maxLife / 100);
     if (p.isGreen) {
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#166534';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0);
-      ctx.stroke();
+      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#166534'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-p.size, 0); ctx.lineTo(p.size, 0); ctx.stroke();
     } else {
-      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)';
-      ctx.beginPath();
-      ctx.arc(0, 0, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = 'rgba(75, 85, 99, 0.7)'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
-  }
-}
-
-let audioCtx = null;
-function initAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-}
-
-function playSound(type) {
-  initAudio();
-  if (!audioCtx) return;
-  const now = audioCtx.currentTime;
-  
-  if (type === 'good') {
-    [800, 1000, 1200, 1500].forEach((f, i) => {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.connect(g); g.connect(audioCtx.destination);
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0, now + i*0.05);
-      g.gain.linearRampToValueAtTime(0.05, now + i*0.05 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.01, now + i*0.05 + 0.15);
-      o.start(now + i*0.05); o.stop(now + i*0.05 + 0.2);
-    });
-  } else {
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
-    o.frequency.exponentialRampToValueAtTime(100, now + 0.3);
-    g.gain.setValueAtTime(0.05, now);
-    g.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-    o.start(now); o.stop(now + 0.4);
   }
 }
 </script>
